@@ -30,7 +30,7 @@ from arc.data.base import EpisodicSampler, make_splits  # noqa: E402
 from arc.data.sources import ImageFolderSource, build_transform, eurosat  # noqa: E402
 from arc.eval.metrics import format_summary, summarise  # noqa: E402
 from arc.heads.protonet import ProtoHead  # noqa: E402
-from arc.train.baselines import BASELINES, select_bn_parameters  # noqa: E402
+from arc.train.baselines import BASELINES  # noqa: E402
 from arc.train.episodic import EpisodeRunner  # noqa: E402
 
 log = logging.getLogger("arc.baselines")
@@ -145,16 +145,13 @@ def main() -> None:
 
         for key in args.baselines:
             spec = BASELINES[key]
-            controller, trainable, steps = spec.build(backbone, args.inner_steps)
+            controller, select, steps = spec.build(backbone, args.inner_steps)
             runner.inner_steps = steps
 
             records: list[dict[str, float]] = []
             started = time.perf_counter()
             for episode in sampler:
-                runner.trainable_units(trainable)
-                if key == "bn_only_ft":
-                    select_bn_parameters(backbone)
-                result = runner.run_episode(episode, controller, trainable=trainable)
+                result = runner.run_episode(episode, controller, select=select)
                 rec = result.metrics.as_dict()
                 rec["fraction_modified"] = result.fraction_modified
                 rec["seconds"] = result.seconds

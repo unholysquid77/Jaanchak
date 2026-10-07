@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Mapping, Protocol
+from typing import Callable, Mapping, Protocol
 
 import torch
 import torch.nn.functional as F
@@ -44,6 +44,52 @@ class Controller(Protocol):
 
     def step(self, step_index: int) -> torch.Tensor | None:
         """Return a ``(n_units,)`` gate vector, or ``None`` for "fully adapted"."""
+
+
+ParamSelector = Callable[[TappedBackbone], None]
+
+
+def select_all(backbone: TappedBackbone) -> None:
+    """Every backbone parameter is trainable."""
+    backbone.adapted.requires_grad_(True)
+
+
+def select_none(backbone: TappedBackbone) -> None:
+    """No backbone parameter is trainable (the head may still train)."""
+    backbone.adapted.requires_grad_(False)
+
+
+def select_units(*names: str) -> ParamSelector:
+    """Only the named units are trainable.
+
+    Note the empty case is meaningful and distinct from "all": ``select_units()``
+    freezes the backbone entirely.
+    """
+
+    def selector(backbone: TappedBackbone) -> None:
+        unknown = set(names) - set(backbone.unit_names)
+        if unknown:
+            raise ValueError(f"unknown units {sorted(unknown)}")
+        backbone.adapted.requires_grad_(False)
+        for name in names:
+            backbone.adapted[name].requires_grad_(True)
+
+    return selector
+
+
+def select_batchnorm(backbone: TappedBackbone) -> None:
+    """Only BatchNorm affine parameters, across every unit.
+
+    A strong and very cheap domain-shift baseline that is often omitted and often
+    competitive -- worth beating explicitly rather than ignoring.
+    """
+    backbone.adapted.requires_grad_(False)
+    for module in backbone.adapted.modules():
+        if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
+            if module.weight is not None:
+                module.weight.requires_grad_(True)
+            if module.bias is not None:
+                module.bias.requires_grad_(True)
 
 
 class StaticController:
@@ -109,26 +155,28 @@ class EpisodeRunner:
         self.backbone.adapted.load_state_dict(self._pristine)
         self.head.load_state_dict(self._head_pristine)
 
-    def trainable_units(self, units: list[str] | None) -> None:
-        """Restrict which units carry gradients.
+    def apply_selector(self, select: ParamSelector | None) -> None:
+        """Choose which parameters carry gradients this episode.
 
         Distinct from gating: a unit may be gated open but frozen (it then contributes
         its pretrained output), which is how the "static gate" ablation is expressed.
+
+        Takes a callable rather than a list of unit names because some baselines select
+        parameters by *kind* rather than by unit -- BatchNorm-only adaptation spans
+        every unit. An earlier list-based API made that inexpressible, and the
+        BatchNorm baseline silently ran as full fine-tuning.
         """
-        self.backbone.adapted.requires_grad_(False)
-        for name in units or self.backbone.unit_names:
-            self.backbone.adapted[name].requires_grad_(True)
+        (select or select_all)(self.backbone)
 
     def run_episode(
         self,
         episode: Episode,
         controller: Controller,
-        trainable: list[str] | None = None,
-        collect: Mapping[str, object] | None = None,
+        select: ParamSelector | None = None,
     ) -> EpisodeResult:
         started = time.perf_counter()
         self.reset()
-        self.trainable_units(trainable)
+        self.apply_selector(select)
         episode = episode.to(self.device)
         controller.reset(self.backbone, episode)
 
