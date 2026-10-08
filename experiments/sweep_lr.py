@@ -39,7 +39,12 @@ from arc.train.episodic import EpisodeRunner  # noqa: E402
 
 log = logging.getLogger("arc.sweep")
 
-DEFAULT_LRS = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3]
+# Adam's normalised update moves every parameter by roughly `lr` per step, so the L2
+# drift of a 15M-parameter unit is about sqrt(15e6) * lr -- measured at 0.34 for
+# lr=1e-4, matching. The original grid topped out at 3e-3, which moves parameters by
+# more than their own magnitude in a single step and produced inf gradients; it was
+# roughly 30x too high at the top end.
+DEFAULT_LRS = [1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4]
 DEFAULT_STEPS = [5, 20]
 
 

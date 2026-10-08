@@ -150,6 +150,44 @@ Binary freeze/unfreeze ablation uses Gumbel-softmax ([19]).
 
 ---
 
+## 5b. Inner-loop defects found during implementation
+
+Three defects made the first learning-rate sweep meaningless -- it returned accuracies
+identical to four decimals across a 300x LR range, and `lr=0` reproduced them bit for
+bit. All three are now pinned by tests in `tests/test_inner_loop.py`.
+
+**Metric saturation (the root cause).** ProtoNet used squared Euclidean distance over a
+64-d embedding trained from scratch, where distances are O(1). Over the 2048-d
+penultimate features of an ImageNet ResNet-50 they are not: measured on EuroSAT,
+squared distances span 5.6 to 419 with a correct-class value of ~11. At temperature 1
+the softmax saturates to *exactly* 1.0 and cross-entropy underflows to *exactly* 0.0 in
+fp32. Zero loss, zero gradient, no learning at any learning rate, under any objective.
+The head now defaults to **cosine similarity** with a learnable scale; `sqeuclidean`
+remains as an ablation but divides by the embedding dimension.
+
+**Degenerate objective.** Classifying the support set against prototypes built from that
+same support set is degenerate: each point contributes 1/k of its own prototype, and at
+k=1 it *is* its own prototype, so its correct-class logit is pinned at the metric
+maximum regardless of the network. The inner objective is now **two-view**: prototypes
+from one augmented view, classified against a second. Well-defined at every k, and what
+the cross-domain few-shot fine-tuning literature actually does. Leave-one-out is
+available for k>=2 as an augmentation-free ablation.
+
+**BatchNorm statistic pollution.** With the backbone in train mode, BatchNorm recomputes
+its running statistics from the support batch on the *forward* pass -- independent of
+the learning rate and of whether the optimiser does anything at all. Measured on a
+1-shot episode at `lr=0`: parameter drift 0.0, BatchNorm running-stat drift 162.1, and
+accuracy falling from 61.2% to 51.2% purely as a function of step count. BatchNorm now
+stays in eval mode during adaptation by default. Transductive BatchNorm (`bn_mode=
+"train"`) is a legitimate and strong cross-domain technique, so it remains reachable --
+but as an explicit, separately-reported choice rather than an accident.
+
+Gradient clipping (default 1.0, applied after `unscale_`) was added alongside: the
+pre-fix loop produced inf gradients that AMP silently skipped, so some "runs" performed
+almost no optimiser steps at all.
+
+---
+
 ## 6. Controller B — FBSDE
 
 State `X_t` in `R^80` (16 layers x 5 signals), with "time" = inner adaptation step.

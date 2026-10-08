@@ -31,6 +31,7 @@ from arc.backbones.tapped import TappedBackbone
 from arc.data.base import Episode
 from arc.eval.metrics import EpisodeMetrics, episode_metrics
 from arc.heads.protonet import ProtoHead
+from arc.train.objectives import ObjectiveName, inner_loss
 
 
 class Controller(Protocol):
@@ -135,8 +136,11 @@ class EpisodeRunner:
         head: ProtoHead | None = None,
         device: str | torch.device = "cuda",
         inner_steps: int = 20,
-        inner_lr: float = 1e-3,
+        inner_lr: float = 1e-4,
         amp: bool = True,
+        objective: ObjectiveName = "two_view",
+        bn_mode: str = "eval",
+        grad_clip: float | None = 1.0,
     ) -> None:
         self.device = torch.device(device)
         self.backbone = backbone.to(self.device)
@@ -144,6 +148,20 @@ class EpisodeRunner:
         self.inner_steps = inner_steps
         self.inner_lr = inner_lr
         self.amp = amp and self.device.type == "cuda"
+        self.objective = objective
+        self.grad_clip = grad_clip
+
+        if bn_mode not in {"eval", "train"}:
+            raise ValueError(f"bn_mode must be 'eval' or 'train', got {bn_mode!r}")
+        # 'eval' keeps the pretrained running statistics fixed during adaptation.
+        # Without it, BatchNorm recomputes its statistics from the support batch on the
+        # *forward* pass -- which happens regardless of learning rate, and regardless of
+        # whether the optimiser does anything. Measured on a 1-shot episode with lr=0:
+        # parameter drift 0.0, BatchNorm running-stat drift 162.1, and accuracy falling
+        # from 61.2% to 51.2% purely as a function of step count. 'train' is retained
+        # because transductive BatchNorm is a legitimate (and strong) cross-domain
+        # technique, but it must be an explicit, separately-reported choice.
+        self.bn_mode = bn_mode
 
         # Snapshot on the device so resetting is a device-to-device copy, not a
         # host round-trip. ~100 MB for ResNet-50; cheap insurance against drift
@@ -168,6 +186,18 @@ class EpisodeRunner:
         """
         (select or select_all)(self.backbone)
 
+    def set_train_mode(self) -> None:
+        """Put the backbone in training mode, honouring ``bn_mode``.
+
+        The frozen twin is always in eval mode (``TappedBackbone.train`` enforces it);
+        this governs the *adapted* branch only.
+        """
+        self.backbone.train()
+        if self.bn_mode == "eval":
+            for module in self.backbone.adapted.modules():
+                if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
+                    module.eval()
+
     def run_episode(
         self,
         episode: Episode,
@@ -189,20 +219,33 @@ class EpisodeRunner:
         last_loss = float("nan")
         gates: torch.Tensor | None = None
 
-        self.backbone.train()
+        self.set_train_mode()
+        skipped = 0
         for step in range(self.inner_steps if opt is not None else 0):
             gates = controller.step(step)
             opt.zero_grad(set_to_none=True)
             with torch.amp.autocast("cuda", enabled=self.amp):
-                emb = self.backbone(episode.support_x, gates=gates).embedding
-                # Support set serves as both prototypes and targets. Leave-one-out
-                # would be cleaner but costs n_way*k_shot forward passes; the standard
-                # ProtoNet fine-tuning recipe uses the plain form and we match it.
-                logits = self.head(emb, episode.support_y, emb, n_way)
-                loss = F.cross_entropy(logits, episode.support_y)
+                loss = inner_loss(
+                    lambda batch: self.backbone(batch, gates=gates).embedding,
+                    episode.support_x,
+                    episode.support_y,
+                    n_way,
+                    self.head,
+                    objective=self.objective,
+                )
             scaler.scale(loss).backward()
+
+            if self.grad_clip is not None:
+                # unscale_ before clipping, or the clip threshold applies to
+                # AMP-scaled gradients and means nothing.
+                scaler.unscale_(opt)
+                torch.nn.utils.clip_grad_norm_(params, self.grad_clip)
+
+            before_scale = scaler.get_scale()
             scaler.step(opt)
             scaler.update()
+            # A decreasing scale means the step was skipped for inf/nan gradients.
+            skipped += int(scaler.get_scale() < before_scale)
             last_loss = float(loss.detach())
 
         self.backbone.eval()
@@ -213,6 +256,7 @@ class EpisodeRunner:
             logits = self.head(support_emb, episode.support_y, query_emb, n_way)
 
         metrics = episode_metrics(logits.float(), episode.query_y, n_way)
+        extra = {"skipped_steps": float(skipped)}
         return EpisodeResult(
             metrics=metrics,
             episode_id=episode.episode_id,
@@ -220,4 +264,5 @@ class EpisodeRunner:
             seconds=time.perf_counter() - started,
             fraction_modified=self.backbone.fraction_modified(),
             gate_profile=[] if gates is None else gates.detach().float().cpu().tolist(),
+            extra=extra,
         )
