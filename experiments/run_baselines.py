@@ -98,7 +98,15 @@ def main() -> None:
     p.add_argument("--n-query", type=int, default=15)
     p.add_argument("--episodes", type=int, default=600)
     p.add_argument("--inner-steps", type=int, default=20)
-    p.add_argument("--inner-lr", type=float, default=1e-3)
+    p.add_argument("--inner-lr", type=float, default=1e-4)
+    p.add_argument("--objective", default="two_view", choices=["two_view", "loo", "self"])
+    p.add_argument("--bn-mode", default="eval", choices=["eval", "train"],
+                   help="'train' enables transductive BatchNorm; report it separately")
+    p.add_argument("--metric", default="cosine", choices=["cosine", "sqeuclidean"])
+    p.add_argument("--grad-clip", type=float, default=1.0)
+    p.add_argument("--tuned", default=None, metavar="BEST_LR_JSON",
+                   help="per-baseline lr/inner_steps from sweep_lr.py; without it every "
+                        "baseline runs at --inner-lr, which makes them strawmen")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--baselines", nargs="+", default=list(BASELINES))
     p.add_argument("--out", default="results")
@@ -123,12 +131,27 @@ def main() -> None:
     backbone = TappedBackbone(arch=args.arch, pretrained=True)
     runner = EpisodeRunner(
         backbone,
-        head=ProtoHead(),
+        head=ProtoHead(metric=args.metric),
         device=args.device,
         inner_steps=args.inner_steps,
         inner_lr=args.inner_lr,
         amp=not args.no_amp,
+        objective=args.objective,
+        bn_mode=args.bn_mode,
+        grad_clip=args.grad_clip,
     )
+
+    tuned: dict = {}
+    if args.tuned:
+        tuned = json.loads(Path(args.tuned).read_text())
+        log.info("loaded tuned settings for %d baselines from %s", len(tuned), args.tuned)
+    else:
+        log.warning(
+            "no --tuned file: every baseline runs at lr=%g, steps=%d. Fine-tuning "
+            "baselines are not comparable until each has been given its own best "
+            "settings; run experiments/sweep_lr.py first.",
+            args.inner_lr, args.inner_steps,
+        )
 
     for k_shot in args.k_shot:
         sampler = EpisodicSampler(
@@ -145,7 +168,10 @@ def main() -> None:
 
         for key in args.baselines:
             spec = BASELINES[key]
-            controller, select, steps = spec.build(backbone, args.inner_steps)
+            setting = tuned.get(key, {}).get(str(k_shot), {})
+            steps_for_spec = int(setting.get("inner_steps", args.inner_steps))
+            runner.inner_lr = float(setting.get("lr", args.inner_lr))
+            controller, select, steps = spec.build(backbone, steps_for_spec)
             runner.inner_steps = steps
 
             records: list[dict[str, float]] = []
@@ -159,13 +185,19 @@ def main() -> None:
 
             summary = summarise(records)
             elapsed = time.perf_counter() - started
-            print(format_summary(key, summary), f" [{elapsed/60:.1f} min]")
+            mark = "" if setting else "  (untuned)"
+            print(format_summary(key, summary),
+                  f" lr={runner.inner_lr:.0e} steps={runner.inner_steps:<3d}"
+                  f" [{elapsed/60:.1f} min]{mark}")
 
             payload = {
                 "manifest": manifest(args),
                 "baseline": key,
                 "description": spec.description,
                 "k_shot": k_shot,
+                "inner_lr": runner.inner_lr,
+                "inner_steps": runner.inner_steps,
+                "tuned": bool(setting),
                 "summary": summary,
                 "episodes": records,
             }

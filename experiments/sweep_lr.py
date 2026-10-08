@@ -160,9 +160,15 @@ def main() -> None:
                     if prev is None or mean > prev["accuracy"]:
                         best[key][str(k_shot)] = row
 
-            # Flush after each baseline so a crash loses minutes, not hours.
-            (out_dir / f"sweep_{args.dataset}_raw.json").write_text(json.dumps(results, indent=2))
-            (out_dir / f"best_lr_{args.dataset}.json").write_text(json.dumps(best, indent=2))
+                    # Flush after every config, not every baseline: a crash should
+                    # cost one config, and partial results should be inspectable
+                    # while the sweep is still running.
+                    (out_dir / f"sweep_{args.dataset}_raw.json").write_text(
+                        json.dumps(results, indent=2)
+                    )
+                    (out_dir / f"best_lr_{args.dataset}.json").write_text(
+                        json.dumps(best, indent=2)
+                    )
 
     total = (time.perf_counter() - sweep_started) / 60
     print(f"\n=== best settings on val ({args.dataset}, {total:.0f} min) ===")
