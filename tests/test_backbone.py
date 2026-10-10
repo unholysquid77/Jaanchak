@@ -87,3 +87,45 @@ def test_unit_names_cover_stem_and_every_block() -> None:
     assert net.n_units == 1 + 8  # resnet18: stem + 2 blocks per stage
     net50 = TappedBackbone(arch="resnet50", pretrained=False)
     assert net50.n_units == 1 + 16  # the 17 controllable units the spec assumes
+
+
+def test_gradient_checkpointing_changes_nothing_but_memory() -> None:
+    """Checkpointing recomputes activations in the backward pass. It must produce
+    identical outputs and identical gradients -- it is a memory trade, not a method
+    change. Enabled at 20-shot, where the two-view objective forwards 200 images and
+    overflows 10 GiB without it.
+    """
+    x = torch.randn(2, 3, 64, 64)
+    gates = torch.full((9,), 0.5)
+
+    grads = {}
+    for use_ckpt in (False, True):
+        net = _perturbed_backbone()
+        net.grad_checkpoint = use_ckpt
+        net.adapted.requires_grad_(True)
+        out = net(x, gates=gates).embedding
+        out.sum().backward()
+        grads[use_ckpt] = (
+            out.detach().clone(),
+            torch.cat([
+                p.grad.flatten() for p in net.adapted.parameters() if p.grad is not None
+            ]),
+        )
+
+    out_off, grad_off = grads[False]
+    out_on, grad_on = grads[True]
+    assert torch.allclose(out_off, out_on, atol=1e-6), "checkpointing changed the output"
+    assert torch.allclose(grad_off, grad_on, atol=1e-5), "checkpointing changed gradients"
+
+
+def test_checkpointing_is_inert_under_no_grad() -> None:
+    """Under no_grad there is nothing to recompute, so checkpointing should be skipped
+    rather than paying the cost for no benefit."""
+    net = _perturbed_backbone()
+    net.grad_checkpoint = True
+    with torch.no_grad():
+        a = net(torch.randn(2, 3, 64, 64), gates=torch.ones(9)).embedding
+    net.grad_checkpoint = False
+    with torch.no_grad():
+        b = net(torch.randn(2, 3, 64, 64), gates=torch.ones(9)).embedding
+    assert a.shape == b.shape

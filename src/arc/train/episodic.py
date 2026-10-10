@@ -163,6 +163,14 @@ class EpisodeRunner:
         # technique, but it must be an explicit, separately-reported choice.
         self.bn_mode = bn_mode
 
+        if bn_mode == "train" and getattr(backbone, "grad_checkpoint", False):
+            raise ValueError(
+                "grad_checkpoint with bn_mode='train' double-counts BatchNorm running "
+                "statistics: the backward recomputation re-runs the forward pass and "
+                "updates them a second time. Use bn_mode='eval', or disable "
+                "checkpointing."
+            )
+
         # Snapshot on the device so resetting is a device-to-device copy, not a
         # host round-trip. ~100 MB for ResNet-50; cheap insurance against drift
         # leaking across episodes.

@@ -37,6 +37,7 @@ from typing import Iterable, Mapping, Sequence
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 from torchvision import models
 
 
@@ -103,6 +104,12 @@ class TappedBackbone(nn.Module):
 
         self.pool = nn.AdaptiveAvgPool2d(1)
 
+        # Recompute each unit's activations during the backward pass instead of
+        # storing them. Costs roughly 30% more compute and makes 20-shot episodes
+        # fit: the two-view objective forwards 2 * n_way * k_shot images, which at
+        # 20-shot is 200 images and overflows 10 GiB without this.
+        self.grad_checkpoint = False
+
     # -- bookkeeping ---------------------------------------------------------
 
     @property
@@ -139,10 +146,23 @@ class TappedBackbone(nn.Module):
         acts: dict[str, torch.Tensor] = {}
         h = x
         for name in self.unit_names:
-            h = self.adapted[name](h)
+            h = self._run_adapted(name, h)
             if name in self.tap:
                 acts[name] = h
         return ForwardResult(embedding=torch.flatten(self.pool(h), 1), activations=acts)
+
+    def _run_adapted(self, name: str, h: torch.Tensor) -> torch.Tensor:
+        """Apply one adapted unit, optionally with gradient checkpointing.
+
+        Checkpointing is skipped when no grad is being tracked (it would only add the
+        recompute cost) and is incompatible with BatchNorm in train mode, where the
+        backward recomputation would update the running statistics a second time.
+        """
+        # Deliberately not gated on h.requires_grad: the stem's input is the raw
+        # image, which never requires grad, but the stem's own parameters do.
+        if not (self.grad_checkpoint and torch.is_grad_enabled()):
+            return self.adapted[name](h)
+        return checkpoint(self.adapted[name], h, use_reentrant=False)
 
     def forward(
         self,
@@ -172,9 +192,9 @@ class TappedBackbone(nn.Module):
         for name in self.unit_names:
             a = gates.get(name)
             if a is None:
-                h = self.adapted[name](h)
+                h = self._run_adapted(name, h)
             else:
-                h_adp = self.adapted[name](h)
+                h_adp = self._run_adapted(name, h)
                 with torch.no_grad():
                     h_ref = self.frozen[name](h)
                 # a broadcasts over (B, C, H, W) whether scalar or per-channel.

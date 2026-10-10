@@ -104,10 +104,21 @@ def main() -> None:
                    help="'train' enables transductive BatchNorm; report it separately")
     p.add_argument("--metric", default="cosine", choices=["cosine", "sqeuclidean"])
     p.add_argument("--grad-clip", type=float, default=1.0)
+    p.add_argument("--grad-checkpoint", action="store_true",
+                   help="recompute activations in backward; needed at 20-shot, "
+                        "where the two-view objective overflows 10 GiB")
     p.add_argument("--tuned", default=None, metavar="BEST_LR_JSON",
                    help="per-baseline lr/inner_steps from sweep_lr.py; without it every "
                         "baseline runs at --inner-lr, which makes them strawmen")
-    p.add_argument("--seed", type=int, default=0)
+    # The split seed and the episode seed must be separate. Driving both from one
+    # value means every repeat evaluates on a *different test set*, so averaging
+    # across repeats is incoherent and learning rates tuned on one split's validation
+    # set do not apply to the others. The split is a fixed property of the experiment;
+    # only the episode draw varies between repeats.
+    p.add_argument("--split-seed", type=int, default=0,
+                   help="fixes train/val/test; must match the seed used for tuning")
+    p.add_argument("--seeds", type=int, nargs="+", default=[0],
+                   help="episode-sampling seeds; results are reported per seed")
     p.add_argument("--baselines", nargs="+", default=list(BASELINES))
     p.add_argument("--out", default="results")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -123,12 +134,15 @@ def main() -> None:
 
     log.info("building source %s", args.dataset)
     source = build_source(args)
-    splits = make_splits(source, mode=args.split_mode, fractions=tuple(args.fractions), seed=args.seed)
+    splits = make_splits(
+        source, mode=args.split_mode, fractions=tuple(args.fractions), seed=args.split_seed
+    )
     for name, s in splits.items():
         log.info("split %-5s  %6d images  %2d classes", name, len(s.indices), len(s.classes))
 
     log.info("building backbone %s", args.arch)
     backbone = TappedBackbone(arch=args.arch, pretrained=True)
+    backbone.grad_checkpoint = args.grad_checkpoint
     runner = EpisodeRunner(
         backbone,
         head=ProtoHead(metric=args.metric),
@@ -153,57 +167,59 @@ def main() -> None:
             args.inner_lr, args.inner_steps,
         )
 
-    for k_shot in args.k_shot:
-        sampler = EpisodicSampler(
-            source,
-            splits["test"],
-            n_way=args.n_way,
-            k_shot=k_shot,
-            n_query=args.n_query,
-            n_episodes=args.episodes,
-            seed=args.seed,
-        )
-        print(f"\n=== {args.dataset}  {args.n_way}-way {k_shot}-shot  "
-              f"({args.episodes} episodes, seed {args.seed}) ===")
+    for seed in args.seeds:
+        for k_shot in args.k_shot:
+            sampler = EpisodicSampler(
+                source,
+                splits["test"],
+                n_way=args.n_way,
+                k_shot=k_shot,
+                n_query=args.n_query,
+                n_episodes=args.episodes,
+                seed=seed,
+            )
+            print(f"\n=== {args.dataset}  {args.n_way}-way {k_shot}-shot  "
+                  f"({args.episodes} episodes, seed {seed}) ===")
 
-        for key in args.baselines:
-            spec = BASELINES[key]
-            setting = tuned.get(key, {}).get(str(k_shot), {})
-            steps_for_spec = int(setting.get("inner_steps", args.inner_steps))
-            runner.inner_lr = float(setting.get("lr", args.inner_lr))
-            controller, select, steps = spec.build(backbone, steps_for_spec)
-            runner.inner_steps = steps
+            for key in args.baselines:
+                spec = BASELINES[key]
+                setting = tuned.get(key, {}).get(str(k_shot), {})
+                steps_for_spec = int(setting.get("inner_steps", args.inner_steps))
+                runner.inner_lr = float(setting.get("lr", args.inner_lr))
+                controller, select, steps = spec.build(backbone, steps_for_spec)
+                runner.inner_steps = steps
 
-            records: list[dict[str, float]] = []
-            started = time.perf_counter()
-            for episode in sampler:
-                result = runner.run_episode(episode, controller, select=select)
-                rec = result.metrics.as_dict()
-                rec["fraction_modified"] = result.fraction_modified
-                rec["seconds"] = result.seconds
-                records.append(rec)
+                records: list[dict[str, float]] = []
+                started = time.perf_counter()
+                for episode in sampler:
+                    result = runner.run_episode(episode, controller, select=select)
+                    rec = result.metrics.as_dict()
+                    rec["fraction_modified"] = result.fraction_modified
+                    rec["seconds"] = result.seconds
+                    records.append(rec)
 
-            summary = summarise(records)
-            elapsed = time.perf_counter() - started
-            mark = "" if setting else "  (untuned)"
-            print(format_summary(key, summary),
-                  f" lr={runner.inner_lr:.0e} steps={runner.inner_steps:<3d}"
-                  f" [{elapsed/60:.1f} min]{mark}")
+                summary = summarise(records)
+                elapsed = time.perf_counter() - started
+                mark = "" if setting else "  (untuned)"
+                print(format_summary(key, summary),
+                      f" lr={runner.inner_lr:.0e} steps={runner.inner_steps:<3d}"
+                      f" [{elapsed/60:.1f} min]{mark}")
 
-            payload = {
-                "manifest": manifest(args),
-                "baseline": key,
-                "description": spec.description,
-                "k_shot": k_shot,
-                "inner_lr": runner.inner_lr,
-                "inner_steps": runner.inner_steps,
-                "tuned": bool(setting),
-                "summary": summary,
-                "episodes": records,
-            }
-            path = out_dir / f"baseline_{args.dataset}_{key}_{k_shot}shot_seed{args.seed}.json"
-            path.write_text(json.dumps(payload, indent=2))
-            log.info("wrote %s", path)
+                payload = {
+                    "manifest": manifest(args),
+                    "baseline": key,
+                    "description": spec.description,
+                    "k_shot": k_shot,
+                    "seed": seed,
+                    "inner_lr": runner.inner_lr,
+                    "inner_steps": runner.inner_steps,
+                    "tuned": bool(setting),
+                    "summary": summary,
+                    "episodes": records,
+                }
+                path = out_dir / f"baseline_{args.dataset}_{key}_{k_shot}shot_seed{seed}.json"
+                path.write_text(json.dumps(payload, indent=2))
+                log.info("wrote %s", path)
 
     runner.inner_steps = args.inner_steps
 
