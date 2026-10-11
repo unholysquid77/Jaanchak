@@ -84,6 +84,12 @@ def main() -> None:
     p.add_argument("--out", default="results/sweep")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--no-amp", action="store_true")
+    # Without this the sweep OOMs at 20-shot for every baseline whose trainable
+    # parameters span all units (BatchNorm affine, progressive unfreezing, full
+    # fine-tuning): activations must be retained for every unit, not just the
+    # trainable tail. run_baselines.py had the flag; this did not, so the 20-shot
+    # sweep died after two baselines and three more silently ran untuned.
+    p.add_argument("--grad-checkpoint", action="store_true")
     args = p.parse_args()
 
     logging.basicConfig(
@@ -106,6 +112,7 @@ def main() -> None:
              len(splits["val"].indices), len(splits["val"].classes))
 
     backbone = TappedBackbone(arch=args.arch, pretrained=True)
+    backbone.grad_checkpoint = args.grad_checkpoint
     runner = EpisodeRunner(
         backbone, head=ProtoHead(), device=args.device, amp=not args.no_amp
     )

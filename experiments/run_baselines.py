@@ -121,6 +121,9 @@ def main() -> None:
                    help="episode-sampling seeds; results are reported per seed")
     p.add_argument("--baselines", nargs="+", default=list(BASELINES))
     p.add_argument("--out", default="results")
+    p.add_argument("--skip-existing", action="store_true",
+                   help="skip (baseline, k-shot, seed) cells whose JSON already "
+                        "exists; makes a multi-hour run resumable per cell")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--no-amp", action="store_true")
     args = p.parse_args()
@@ -183,6 +186,11 @@ def main() -> None:
 
             for key in args.baselines:
                 spec = BASELINES[key]
+                path = out_dir / f"baseline_{args.dataset}_{key}_{k_shot}shot_seed{seed}.json"
+                if args.skip_existing and path.exists():
+                    print(f"{key:<34} [skip, already present]")
+                    continue
+
                 setting = tuned.get(key, {}).get(str(k_shot), {})
                 steps_for_spec = int(setting.get("inner_steps", args.inner_steps))
                 runner.inner_lr = float(setting.get("lr", args.inner_lr))
@@ -217,7 +225,6 @@ def main() -> None:
                     "summary": summary,
                     "episodes": records,
                 }
-                path = out_dir / f"baseline_{args.dataset}_{key}_{k_shot}shot_seed{seed}.json"
                 path.write_text(json.dumps(payload, indent=2))
                 log.info("wrote %s", path)
 
