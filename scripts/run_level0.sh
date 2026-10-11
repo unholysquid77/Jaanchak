@@ -71,7 +71,8 @@ fi
 # -- 3. merge every sweep ----------------------------------------------------
 stage "merging sweeps"
 $PY experiments/merge_sweeps.py \
-    results/sweep results/sweep_ext results/sweep_hi_v1 \n    results/sweep_hi10 results/sweep_hi20 \
+    results/sweep results/sweep_ext results/sweep_hi_v1 \
+    results/sweep_hi10 results/sweep_hi20 \
     --out "$TUNED" || fail "merge failed"
 
 
