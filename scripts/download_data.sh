@@ -31,19 +31,24 @@ isic() {
         rm -f "$dir/$part.zip"
     done
 
-    # HAM10000_metadata.csv carries lesion_id, which is the ONLY way to know that two
-    # images are views of the same physical lesion. Without it, a split by image leaks
-    # and accuracy is inflated for reasons unrelated to the method. The ISIC S3 bucket
-    # does not serve it, so it has to come from the Harvard Dataverse copy of HAM10000.
+    # HAM10000_metadata.csv carries lesion_id, the ONLY record of which images are
+    # views of the same physical lesion. Measured on the real file: 10,015 images come
+    # from 7,470 lesions, and 4,501 of those images (45%) share a lesion with at least
+    # one other. Splitting by image would put nearly half the corpus on both sides.
+    #
+    # The ISIC S3 bucket does not serve it, so it comes from the Harvard Dataverse
+    # HAM10000 record (doi:10.7910/DVN/DBW86T). Dataverse ingests the CSV into a .tab,
+    # so ?format=original is required to get the file back as it was published.
     if ! have "$dir/HAM10000_metadata.csv"; then
-        echo
-        echo "NOTE: HAM10000_metadata.csv is not in the ISIC bucket and must be"
-        echo "      fetched from the Harvard Dataverse HAM10000 record, then placed at"
-        echo "          $dir/HAM10000_metadata.csv"
-        echo "      Without it every image is treated as a separate lesion and the"
-        echo "      leakage-safe split cannot do its job. ~10k images come from ~7.5k"
-        echo "      lesions, so this is a real effect, not a theoretical one."
-        echo
+        echo "[get ] HAM10000_metadata.csv (lesion_id, for leakage-safe splitting)"
+        curl -L --fail --retry 3 \
+             -o "$dir/HAM10000_metadata.csv" \
+             "https://dataverse.harvard.edu/api/access/datafile/4338392?format=original"
+        if ! head -1 "$dir/HAM10000_metadata.csv" | grep -q lesion_id; then
+            echo "ERROR: downloaded metadata has no lesion_id column" >&2
+            rm -f "$dir/HAM10000_metadata.csv"
+            exit 1
+        fi
     fi
     echo "[done] ISIC in $dir"
 }
