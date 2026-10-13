@@ -33,7 +33,7 @@ import torch
 
 from arc.backbones.tapped import TappedBackbone
 from arc.data.base import Episode
-from arc.signals.base import LayerSignals
+from arc.signals.base import LayerSignals, frozen_batchnorm
 from arc.signals.drift import drift_signal
 from arc.signals.utility import utility_signal
 
@@ -141,14 +141,25 @@ class AdaptiveGate:
         signals = LayerSignals(n_units=self.backbone.n_units)
 
         if self.use_drift:
-            was_training = self.backbone.training
-            self.backbone.eval()
-            with torch.no_grad():
+            # Measure drift without disturbing the mode the runner established.
+            #
+            # An earlier version did `backbone.eval()` then `backbone.train()` to
+            # restore. That looks symmetric but is not: `.train()` puts BatchNorm back
+            # into training mode unconditionally, overriding the runner's
+            # bn_mode='eval' and letting the support batch pollute the running
+            # statistics from the first signal update onward. Because it only triggers
+            # when drift is enabled, it made drift look actively harmful in the gate
+            # sweep -- roughly 9 accuracy points at 1-shot -- when the damage was
+            # BatchNorm, not the signal.
+            #
+            # Only BatchNorm needs suppressing (ResNet has no dropout), and each
+            # module's own flag is saved and restored, so this is correct under both
+            # bn_mode='eval' and the transductive bn_mode='train'.
+            with frozen_batchnorm(self.backbone.adapted), torch.no_grad():
                 adapted = self.backbone(
                     self.episode.support_x, gates=self._gates
                 ).activations
-            if was_training:
-                self.backbone.train()
+
             signals.drift = drift_signal(
                 self._reference, adapted, self.backbone.unit_names, device
             )

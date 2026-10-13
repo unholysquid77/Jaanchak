@@ -13,6 +13,7 @@ contribute nothing to the gate.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 import torch
@@ -71,3 +72,31 @@ class LayerSignals:
             if value is not None:
                 out[name] = float(value.mean())
         return out
+
+
+@contextmanager
+def frozen_batchnorm(module: torch.nn.Module):
+    """Suppress BatchNorm running-statistic updates for the duration of the block.
+
+    Signal computation is *measurement*, not training: it runs extra forward passes
+    whose only purpose is to observe the network, and those passes must not change it.
+    Without this, every signal update nudges the running statistics using the support
+    batch, which at 5-shot is 25 images -- the same pollution that silently invalidated
+    the first learning-rate sweep.
+
+    Each module's own flag is saved and restored rather than calling ``.train()`` on the
+    parent, because ``.train()`` would override a deliberate ``bn_mode='eval'`` policy
+    set by the caller. Correct under both BatchNorm modes.
+    """
+    mods = [
+        m for m in module.modules()
+        if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)
+    ]
+    flags = [m.training for m in mods]
+    for m in mods:
+        m.eval()
+    try:
+        yield
+    finally:
+        for m, flag in zip(mods, flags):
+            m.train(flag)

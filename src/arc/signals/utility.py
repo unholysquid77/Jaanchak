@@ -36,6 +36,8 @@ from typing import Callable, Iterable
 
 import torch
 
+from arc.signals.base import frozen_batchnorm
+
 
 def _flat_grad(params: Iterable[torch.nn.Parameter]) -> torch.Tensor | None:
     grads = [p.grad.detach().flatten() for p in params if p.grad is not None]
@@ -48,7 +50,9 @@ def _grads_per_unit(
 ) -> dict[str, torch.Tensor]:
     """Run one backward pass and collect a flattened gradient per controllable unit."""
     backbone.zero_grad(set_to_none=True)
-    loss_fn().backward()
+    # Measurement, not training: these passes must not move BatchNorm statistics.
+    with frozen_batchnorm(backbone.adapted):
+        loss_fn().backward()
     out: dict[str, torch.Tensor] = {}
     for name in backbone.unit_names:
         g = _flat_grad(backbone.adapted[name].parameters())

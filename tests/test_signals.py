@@ -270,3 +270,58 @@ def test_gate_runs_end_to_end_and_produces_varied_values() -> None:
     assert torch.isfinite(gates).all()
     assert (gates >= 0).all() and (gates <= 1).all()
     assert gate.history and "drift" in gate.history[0] and "utility" in gate.history[0]
+
+
+# -- train-mode discipline ---------------------------------------------------
+
+def _bn_stats(module: torch.nn.Module) -> torch.Tensor:
+    parts = [
+        t.flatten()
+        for m in module.modules()
+        if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)
+        for t in (m.running_mean, m.running_var)
+        if t is not None
+    ]
+    return torch.cat(parts)
+
+
+def test_computing_signals_does_not_resurrect_batchnorm_training() -> None:
+    """The controller runs its own forward pass to measure drift. Restoring the
+    backbone with a plain .train() afterwards puts BatchNorm back into training mode,
+    silently overriding the runner's bn_mode='eval' and reintroducing running-statistic
+    pollution from the support batch -- the defect fixed in the inner loop, re-entering
+    through the controller. It fires only when drift is enabled, which is exactly the
+    configuration the gate sweep found 'harmful'.
+    """
+    net, ep = _backbone(), _episode()
+    net.train()
+    for m in net.adapted.modules():
+        if isinstance(m, torch.nn.modules.batchnorm._BatchNorm):
+            m.eval()
+
+    gate = AdaptiveGate(cadence=1, warmup=0, use_utility=False, use_drift=True)
+    gate.reset(net, ep)
+    before = _bn_stats(net.adapted).clone()
+    gate.compute_signals()
+
+    still_eval = [
+        m.training for m in net.adapted.modules()
+        if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)
+    ]
+    assert not any(still_eval), "BatchNorm was switched back to training mode"
+    assert torch.equal(_bn_stats(net.adapted), before), "BatchNorm statistics moved"
+
+
+def test_signal_computation_preserves_module_training_flags() -> None:
+    """Whatever mode the runner established must survive a signal update, in either
+    bn_mode -- the controller does not own that policy."""
+    net, ep = _backbone(), _episode()
+    net.train()
+    before = {name: m.training for name, m in net.adapted.named_modules()}
+
+    gate = AdaptiveGate(cadence=1, warmup=0, use_utility=False, use_drift=True)
+    gate.reset(net, ep)
+    gate.compute_signals()
+
+    after = {name: m.training for name, m in net.adapted.named_modules()}
+    assert before == after, {k: (before[k], after[k]) for k in before if before[k] != after[k]}
