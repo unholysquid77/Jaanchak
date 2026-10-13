@@ -178,7 +178,7 @@ def main() -> None:
                     )
 
     total = (time.perf_counter() - sweep_started) / 60
-    print(f"\n=== best settings on val ({args.dataset}, {total:.0f} min) ===")
+    print(f"\n=== best settings on val ({args.dataset}, {total:.0f} min) ===", flush=True)
     for key in keys:
         for k_shot in args.k_shot:
             row = best[key].get(str(k_shot))

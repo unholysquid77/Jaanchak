@@ -128,7 +128,7 @@ def main() -> None:
         )
 
         # -- stage 1: learning rate, signals disabled ------------------------
-        print(f"\n=== {k_shot}-shot, stage 'lr' (gate constant, signals off) ===")
+        print(f"\n=== {k_shot}-shot, stage 'lr' (gate constant, signals off) ===", flush=True)
         lr_rows = []
         for lr in args.lrs:
             runner.inner_lr = lr
@@ -149,10 +149,10 @@ def main() -> None:
                 "%d-shot: learning rate peaked at a grid edge (%.0e) -- extend the grid",
                 k_shot, best_lr,
             )
-        print(f"  -> best lr {best_lr:.0e}")
+        print(f"  -> best lr {best_lr:.0e}", flush=True)
 
         # -- stage 2: the gate itself ----------------------------------------
-        print(f"\n=== {k_shot}-shot, stage 'gate' (lr={best_lr:.0e}) ===")
+        print(f"\n=== {k_shot}-shot, stage 'gate' (lr={best_lr:.0e}) ===", flush=True)
         runner.inner_lr = best_lr
         gate_rows = []
         for bias, u, d in itertools.product(args.biases, args.utilities, args.drifts):
@@ -183,10 +183,10 @@ def main() -> None:
             delta = (top["accuracy"] - ref["accuracy"]) * 100
             print(f"\n  best with signals : {top['accuracy']*100:5.2f} "
                   f"(bias={top['bias']:g} aU={top['utility']:g} bD={top['drift']:g})")
-            print(f"  best without      : {ref['accuracy']*100:5.2f} (bias={ref['bias']:g})")
-            print(f"  signals are worth : {delta:+.2f} points on val")
+            print(f"  best without      : {ref['accuracy']*100:5.2f} (bias={ref['bias']:g})", flush=True)
+            print(f"  signals are worth : {delta:+.2f} points on val", flush=True)
 
-    print(f"\nwrote {out_dir / f'best_gate_{args.dataset}.json'}")
+    print(f"\nwrote {out_dir / f'best_gate_{args.dataset}.json'}", flush=True)
 
 
 if __name__ == "__main__":

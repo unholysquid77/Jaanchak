@@ -188,7 +188,7 @@ def main() -> None:
                 spec = BASELINES[key]
                 path = out_dir / f"baseline_{args.dataset}_{key}_{k_shot}shot_seed{seed}.json"
                 if args.skip_existing and path.exists():
-                    print(f"{key:<34} [skip, already present]")
+                    print(f"{key:<34} [skip, already present]", flush=True)
                     continue
 
                 setting = tuned.get(key, {}).get(str(k_shot), {})
