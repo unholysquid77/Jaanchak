@@ -218,6 +218,23 @@ class EpisodeRunner:
         episode = episode.to(self.device)
         controller.reset(self.backbone, episode)
 
+        # A signal-driven controller needs the same stochastic support loss the inner
+        # loop uses -- the utility signal is gradient agreement between two draws of
+        # it. The objective is the runner's choice, so the runner supplies it rather
+        # than the controller reconstructing one and silently measuring something else.
+        if hasattr(controller, "bind_loss"):
+            def support_loss(gates_ref=None):
+                return inner_loss(
+                    lambda batch: self.backbone(batch, gates=gates_ref).embedding,
+                    episode.support_x,
+                    episode.support_y,
+                    episode.n_way,
+                    self.head,
+                    objective=self.objective,
+                )
+
+            controller.bind_loss(support_loss)
+
         params = [p for p in self.backbone.adapted.parameters() if p.requires_grad]
         params += list(self.head.parameters())
         opt = torch.optim.Adam(params, lr=self.inner_lr) if params else None
@@ -256,15 +273,31 @@ class EpisodeRunner:
             skipped += int(scaler.get_scale() < before_scale)
             last_loss = float(loss.detach())
 
+        # Evaluate with the gate the inner loop finished on. Previously this re-invoked
+        # controller.step() *inside* no_grad, which is harmless for a static controller
+        # but wrong for a signal-driven one: the utility signal needs gradients, so it
+        # would quietly return zeros and the episode would be scored with a gate that
+        # no adaptation ever used. Only ask the controller when the loop never ran.
+        if gates is None:
+            gates = controller.step(0)
+
         self.backbone.eval()
         with torch.no_grad(), torch.amp.autocast("cuda", enabled=self.amp):
-            gates = controller.step(max(self.inner_steps - 1, 0))
             support_emb = self.backbone(episode.support_x, gates=gates).embedding
             query_emb = self.backbone(episode.query_x, gates=gates).embedding
             logits = self.head(support_emb, episode.support_y, query_emb, n_way)
 
         metrics = episode_metrics(logits.float(), episode.query_y, n_way)
         extra = {"skipped_steps": float(skipped)}
+        history = getattr(controller, "history", None)
+        if history:
+            # Mean signal values over the episode, for the paper's layer-behaviour
+            # figure and to make a dead signal visible in the results rather than only
+            # in a debugger.
+            for key in ("utility", "drift", "gate_mean"):
+                vals = [h[key] for h in history if key in h]
+                if vals:
+                    extra[f"mean_{key}"] = sum(vals) / len(vals)
         return EpisodeResult(
             metrics=metrics,
             episode_id=episode.episode_id,
