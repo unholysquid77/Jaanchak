@@ -95,12 +95,14 @@ class AdaptiveGate:
         warmup: int = 1,
         use_utility: bool = True,
         use_drift: bool = True,
+        normalise: bool = True,
     ) -> None:
         self.coef = coefficients or GateCoefficients()
         self.cadence = max(1, cadence)
         self.warmup = warmup
         self.use_utility = use_utility
         self.use_drift = use_drift
+        self.normalise = normalise
 
         self.backbone: TappedBackbone | None = None
         self.episode: Episode | None = None
@@ -169,14 +171,50 @@ class AdaptiveGate:
 
         return signals
 
+    @staticmethod
+    def _standardise(values: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+        """Z-score a signal across units, within the episode.
+
+        This is what makes the gate a *layer-wise* controller rather than a global
+        scalar. The raw signals are informative but small and on incomparable scales:
+        measured on EuroSAT at 5-shot, drift runs from 0.000 at the stem to 0.33 at the
+        last block -- a clear depth profile, but a swing of only 0.33 * beta in the
+        logit. With any bias large enough to keep the gate open, that is invisible:
+        the gate came out at 0.997 for the least-drifted unit and 0.997 for the most,
+        so ARC was running as exactly full fine-tuning while appearing to work.
+
+        Utility and drift are also positively correlated (both rise with depth), so
+        with the methodology's signs the +U and -D terms partly cancel, which made the
+        saturation worse.
+
+        What the controller actually needs to know is which layers have drifted or
+        agreed *more than the others right now*, so each signal is standardised across
+        units per update. Coefficients then set the spread of the gate in units of
+        standard deviation, and the bias sets its mean openness -- a parameterisation
+        where the two knobs do separate jobs.
+
+        A signal with no variation across units carries no ranking information, so it
+        returns zeros rather than amplifying numerical noise into a spurious ordering.
+        That is the normal case for drift at step 0, where the branches are identical.
+        """
+        std = values.std()
+        if not torch.isfinite(std) or std < eps:
+            return torch.zeros_like(values)
+        return (values - values.mean()) / std
+
     def gate_from(self, signals: LayerSignals, device: torch.device) -> torch.Tensor:
         c = self.coef
+
+        def term(name: str) -> torch.Tensor:
+            v = signals.get(name, device)
+            return self._standardise(v) if self.normalise else v
+
         logit = torch.full((signals.n_units,), c.bias, device=device)
-        logit = logit + c.utility * signals.get("utility", device)
-        logit = logit - c.drift * signals.get("drift", device)
-        logit = logit - c.topology * signals.get("topology", device)
-        logit = logit + c.stability * signals.get("stability", device)
-        logit = logit + c.novelty * signals.get("novelty", device)
+        logit = logit + c.utility * term("utility")
+        logit = logit - c.drift * term("drift")
+        logit = logit - c.topology * term("topology")
+        logit = logit + c.stability * term("stability")
+        logit = logit + c.novelty * term("novelty")
         return torch.sigmoid(logit)
 
     def step(self, step_index: int) -> torch.Tensor:

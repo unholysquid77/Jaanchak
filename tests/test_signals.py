@@ -196,10 +196,10 @@ def test_coefficients_reject_negative_magnitudes() -> None:
         GateCoefficients(drift=-1.0)
 
 
-def test_gate_closes_as_drift_rises() -> None:
-    """The core control behaviour: a layer that has moved far from pretrained should
-    be throttled."""
-    gate = AdaptiveGate(GateCoefficients(bias=2.0, utility=0.0, drift=8.0))
+def test_gate_closes_as_drift_rises_without_normalisation() -> None:
+    """Absolute response, with standardisation off: a uniformly high-drift state
+    should close the gate everywhere."""
+    gate = AdaptiveGate(GateCoefficients(bias=2.0, utility=0.0, drift=8.0), normalise=False)
     device = torch.device("cpu")
 
     low = LayerSignals(n_units=3, drift=torch.zeros(3))
@@ -208,13 +208,35 @@ def test_gate_closes_as_drift_rises() -> None:
     assert gate.gate_from(high, device).mean() < 0.1
 
 
-def test_gate_opens_as_utility_rises() -> None:
-    gate = AdaptiveGate(GateCoefficients(bias=0.0, utility=6.0, drift=0.0))
+def test_normalised_gate_responds_to_relative_drift_not_absolute_level() -> None:
+    """With standardisation on, only the ranking across units matters -- which is the
+    point: a uniform shift in drift tells the controller nothing about *where* to
+    adapt, and should leave the gate alone."""
+    gate = AdaptiveGate(GateCoefficients(bias=2.0, utility=0.0, drift=4.0), normalise=True)
+    device = torch.device("cpu")
+
+    shifted = LayerSignals(n_units=3, drift=torch.tensor([0.5, 0.5, 0.5]))
+    assert gate.gate_from(shifted, device).std() < 1e-6
+
+    varied = LayerSignals(n_units=3, drift=torch.tensor([0.0, 0.1, 0.5]))
+    g = gate.gate_from(varied, device)
+    assert g[0] > g[1] > g[2], g
+
+
+def test_gate_opens_as_utility_rises_without_normalisation() -> None:
+    gate = AdaptiveGate(GateCoefficients(bias=0.0, utility=6.0, drift=0.0), normalise=False)
     device = torch.device("cpu")
     disagree = LayerSignals(n_units=3, utility=-torch.ones(3))
     agree = LayerSignals(n_units=3, utility=torch.ones(3))
     assert gate.gate_from(disagree, device).mean() < 0.1
     assert gate.gate_from(agree, device).mean() > 0.9
+
+
+def test_normalised_gate_opens_the_units_with_the_highest_relative_utility() -> None:
+    gate = AdaptiveGate(GateCoefficients(bias=0.0, utility=4.0, drift=0.0), normalise=True)
+    u = torch.tensor([0.2, 0.5, 0.9])
+    g = gate.gate_from(LayerSignals(n_units=3, utility=u), torch.device("cpu"))
+    assert g[2] > g[1] > g[0], g
 
 
 def test_gate_discriminates_between_units() -> None:
@@ -223,7 +245,7 @@ def test_gate_discriminates_between_units() -> None:
     # bias=4 centres the sigmoid over the drift range being tested; at bias=0 the whole
     # response is squashed into the lower half and the spread is capped at 0.5 by
     # construction rather than by any property of the controller.
-    gate = AdaptiveGate(GateCoefficients(bias=4.0, utility=0.0, drift=8.0))
+    gate = AdaptiveGate(GateCoefficients(bias=4.0, utility=0.0, drift=8.0), normalise=False)
     signals = LayerSignals(n_units=4, drift=torch.tensor([0.0, 0.3, 0.6, 1.0]))
     gates = gate.gate_from(signals, torch.device("cpu"))
     assert gates[0] > gates[1] > gates[2] > gates[3]
@@ -325,3 +347,58 @@ def test_signal_computation_preserves_module_training_flags() -> None:
 
     after = {name: m.training for name, m in net.adapted.named_modules()}
     assert before == after, {k: (before[k], after[k]) for k in before if before[k] != after[k]}
+
+
+# -- gate saturation ---------------------------------------------------------
+
+def test_raw_signals_saturate_the_gate_into_a_constant() -> None:
+    """Documents the defect that made ARC behave as full fine-tuning.
+
+    These are the real measured values on EuroSAT at 5-shot: drift runs 0.000 at the
+    stem to 0.33 at the last block, utility 0.31 to 0.76. Informative signals -- but
+    against a bias large enough to keep the gate open, the swing is invisible, and
+    because utility and drift both rise with depth the +U and -D terms cancel.
+    """
+    u = torch.tensor([0.485, 0.423, 0.636, 0.583, 0.756])
+    d = torch.tensor([0.000, 0.016, 0.032, 0.110, 0.329])
+    signals = LayerSignals(n_units=5, utility=u, drift=d)
+
+    raw = AdaptiveGate(GateCoefficients(bias=4.0, utility=4.0, drift=4.0), normalise=False)
+    gates = raw.gate_from(signals, torch.device("cpu"))
+    assert (gates.max() - gates.min()) < 0.01, gates
+    assert gates.min() > 0.99, "gate is saturated open: this is full fine-tuning"
+
+
+def test_standardising_restores_layer_wise_discrimination() -> None:
+    """The fix: the same signals must produce a gate that actually varies by layer."""
+    u = torch.tensor([0.485, 0.423, 0.636, 0.583, 0.756])
+    d = torch.tensor([0.000, 0.016, 0.032, 0.110, 0.329])
+    signals = LayerSignals(n_units=5, utility=u, drift=d)
+
+    gate = AdaptiveGate(GateCoefficients(bias=0.0, utility=0.0, drift=2.0), normalise=True)
+    gates = gate.gate_from(signals, torch.device("cpu"))
+    assert (gates.max() - gates.min()) > 0.5, gates
+    # The most-drifted unit must be throttled hardest.
+    assert gates.argmin().item() == int(d.argmax())
+
+
+def test_standardising_a_flat_signal_adds_nothing() -> None:
+    """At step 0 the branches are identical, so drift is uniformly zero. Z-scoring must
+    not amplify floating-point noise into a spurious layer ranking."""
+    signals = LayerSignals(n_units=6, drift=torch.zeros(6))
+    gate = AdaptiveGate(GateCoefficients(bias=1.0, utility=0.0, drift=8.0), normalise=True)
+    gates = gate.gate_from(signals, torch.device("cpu"))
+    assert torch.allclose(gates, torch.full((6,), torch.sigmoid(torch.tensor(1.0))), atol=1e-6)
+
+
+def test_standardised_gate_spread_grows_with_the_coefficient() -> None:
+    """Coefficients should set the spread in units of standard deviation, so the knob
+    does a predictable job rather than fighting the bias."""
+    d = torch.tensor([0.0, 0.1, 0.2, 0.3, 0.4])
+    signals = LayerSignals(n_units=5, drift=d)
+    spreads = []
+    for beta in (0.5, 2.0, 6.0):
+        gate = AdaptiveGate(GateCoefficients(bias=0.0, utility=0.0, drift=beta), normalise=True)
+        g = gate.gate_from(signals, torch.device("cpu"))
+        spreads.append((g.max() - g.min()).item())
+    assert spreads[0] < spreads[1] < spreads[2], spreads
