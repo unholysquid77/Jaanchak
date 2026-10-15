@@ -15,6 +15,7 @@ before touching anything.
 | [`docs/ARC_SPEC.md`](docs/ARC_SPEC.md) | engineering design and the experimental ladder |
 | [`docs/RESULTS_LEVEL0.md`](docs/RESULTS_LEVEL0.md) | tuned baseline table (complete) |
 | [`docs/RESULTS_LEVEL1.md`](docs/RESULTS_LEVEL1.md) | adaptive gate (null result) |
+| [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md) | every run performed, including the void ones, with exact numbers |
 | [`docs/DATA_REQUEST.md`](docs/DATA_REQUEST.md) | what is needed from the forensic datasets |
 
 ## State

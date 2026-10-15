@@ -6,8 +6,10 @@ null result. Level 2 not started.
 
 This document is the single entry point for anyone (human or agent) picking the project
 up. Read it before touching code. `docs/ARC_SPEC.md` holds the engineering design;
-`docs/RESULTS_LEVEL0.md` holds the baseline table; this file holds the state, the
-landmines, and the open decisions.
+`docs/RESULTS_LEVEL0.md` and `docs/RESULTS_LEVEL1.md` hold the headline tables;
+`docs/EXPERIMENT_LOG.md` holds every run ever performed with exact numbers, including
+the void ones and why each was discarded; this file holds the state, the landmines, and
+the open decisions.
 
 ---
 
