@@ -409,34 +409,23 @@ number in the paper.
 ## 6b. The data package was never committed (2026-10-15)
 
 `src/arc/data/` — the corpus loaders, the leakage-safe splitter and the episodic
-sampler — was matched by the unanchored `data/` line in `.gitignore` and is therefore
+sampler — was matched by the unanchored `data/` line in `.gitignore` and was therefore
 absent from every commit in the project's history. Both machines that ever ran an
-experiment had the files on disk as untracked work, so nothing failed and nothing
-warned. A fresh clone could not import the package at all.
+experiment held the files as untracked work, and the box is a plain tar-synced tree with
+no git repo of its own, so nothing warned.
 
-The repository now carries a **reconstruction**, built from the test suite, the call
-sites and the measurements recorded in this file, plus 22 new tests pinning the two
-guarantees that were previously untested (no source object spans a split; re-iterating
-a sampler yields byte-identical episodes). It passes 104 tests and the full
-`data -> split -> sampler -> EpisodeRunner -> AdaptiveGate` chain was smoke-tested on a
-real on-disk corpus.
+**Resolved.** The original modules were recovered from `~/arc/src/arc/data/` over the
+tailnet and committed verbatim, byte-for-byte. **Every number in this log is
+re-derivable from the repository again.** The ignore patterns are now anchored, and the
+package has 28 tests where it previously had none.
 
-**Bearing on everything above:** every number in this log was produced by the original
-package and stands as a measurement. None of it is guaranteed to be *re-derivable* from
-this repository, because the sampler's exact RNG consumption order cannot be recovered
-from an API. Two known or suspected behavioural differences:
-
-- `make_splits(mode='group_disjoint')` now stratifies the object partition by class.
-  Immaterial on EuroSAT (per-image objects, 27k of them); load-bearing on a corpus with
-  few objects per class.
-- Whether the original sampler drew support and query from disjoint source objects
-  within an episode is unknown. The reconstruction does not, matching published
-  protocol, and exposes the alternative as `group_disjoint_queries=True`.
-
-**Action:** recover `~/arc/src/arc/data/` from the compute box, diff it against the
-reconstruction, and commit the original if it differs. Until then no Level-2 result
-should be compared numerically against the Level-0/Level-1 tables without re-running
-the relevant baseline cell under the same code.
+For the record, a reconstruction built from the test suite and the call sites was
+committed first, while the box was unreachable. It passed all 82 existing tests and ran
+the full pipeline end to end, and still differed from the original in four ways that
+would each have shifted the numbers: the evaluation transform, the `group_disjoint`
+assignment function, the class-selection order inside an episode, and the handling of a
+class with too few images. Worth recording as a calibration: a package can be
+API-correct, fully green and still not reproduce the experiment.
 
 ---
 

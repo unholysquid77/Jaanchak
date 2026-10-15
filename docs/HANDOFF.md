@@ -4,11 +4,11 @@
 **State:** Level 0 complete and reportable. Level 1 built, tuned, and producing a
 null result. Level 2 not started.
 
-> ⚠ **Read §6 landmine 16 first if you are about to re-run anything.** `src/arc/data/`
-> was absent from every commit until 2026-10-15 (a `.gitignore` pattern ate it) and the
-> version now in the repo is a **reconstruction**. The authoritative copy is on the
-> compute box. Diff them before re-deriving any number already in
-> `docs/EXPERIMENT_LOG.md`.
+> **§6 landmine 16:** `src/arc/data/` was absent from every commit until 2026-10-15 (a
+> `.gitignore` pattern ate it). The original has since been recovered from the compute
+> box and committed verbatim, so the recorded results are re-derivable again and the
+> package now has tests. Nothing is outstanding; the entry is kept because the failure
+> mode will recur.
 
 This document is the single entry point for anyone (human or agent) picking the project
 up. Read it before touching code. `docs/ARC_SPEC.md` holds the engineering design;
@@ -64,9 +64,9 @@ Everything in section 4 that is marked *CPU* works fine in a cloud session today
 box (`~/arc/data/isic2018`, 10,015 images, lesion metadata present) but **never run**.
 ChestX loader written and unit-tested, data not obtainable automatically (§6).
 
-**Test suite:** 104 tests, CPU, ~25 s. (Was reported as 82 — that count predated the
-`arc.data` tests and assumed `easyfsl` absent, which silently skips the six ProtoNet
-cross-validation tests as a single entry.)
+**Test suite:** 110 tests, CPU, ~35 s. The six `easyfsl` ProtoNet cross-validation
+tests need `pip install -e ".[dev]"`; without it they skip as a single entry and the
+count reads 104.
 
 **The forensic datasets (FFM/GFA/PCF) still do not exist as far as we know.** This was
 flagged on day one in `docs/DATA_REQUEST.md` and has never been resolved. Everything
@@ -82,9 +82,9 @@ src/arc/
   backbones/tapped.py     ResNet-50 split into 17 gated units + frozen twin.
                           THE core mechanism. Read its docstring first.
   data/base.py            FewShotSource protocol, leakage-safe splits, episodic sampler
-  data/sources.py         EuroSAT, ImageFolder, transforms            (RECONSTRUCTED)
-  data/pathlist.py        corpus from explicit (path, label, group) lists  (RECONSTRUCTED)
-  data/medical.py         ISIC + ChestX loaders                       (RECONSTRUCTED)
+  data/sources.py         EuroSAT, ImageFolder, TensorSource, transforms
+  data/pathlist.py        corpus from explicit (path, label, group) lists
+  data/medical.py         ISIC + ChestX loaders
   heads/protonet.py       ProtoHead (cosine default) + linear probe
   train/episodic.py       EpisodeRunner: per-episode adaptation. Everything runs here.
   train/objectives.py     two-view / leave-one-out / (degenerate) self objectives
@@ -236,32 +236,29 @@ listed because the same classes of error will recur.
 16. **`.gitignore` ate the entire data package.** `data/` is unanchored, so git matched
     it at *every* depth — including `src/arc/data/`. The package was therefore in no
     commit at all: a fresh clone could not `import arc.train.episodic`, every
-    experiment script failed at its first import, and `pytest` collected 0 of the 6
-    test files that reach it. It survived only because both machines that ever ran the
-    code had the files on disk already, untracked. This is landmine 11 a second time
-    through a different door, and it went unnoticed for the whole project.
+    experiment script failed at its first import, and `pytest` collected none of the
+    six test files that reach it. It survived only because both machines that ever ran
+    the code had the files on disk already, untracked — and the box is a plain
+    tar-synced tree with no git repo of its own, so nothing there would ever have
+    flagged it. This is landmine 11 a second time through a different door, and it went
+    unnoticed for the whole project.
 
-    Fixed by anchoring the patterns (`/data/`, `/results/`, `/logs/`) and by
-    reconstructing `base.py`, `sources.py`, `medical.py` and `pathlist.py` from the
-    test suite, the call sites and the recorded measurements. **Two consequences that
-    matter:**
+    Fixed by anchoring the patterns (`/data/`, `/results/`, `/logs/`) and by recovering
+    the original four modules from `~/arc/src/arc/data/` over the tailnet. They are
+    committed **verbatim**, so every number in `docs/EXPERIMENT_LOG.md` is re-derivable.
+    The package had no tests; it now has 28 (`tests/test_data.py`), covering the two
+    guarantees nothing downstream can recover from — no specimen in two splits, and
+    identical episodes across configurations — plus the stable-hash property that makes
+    a split survive a reordering of the corpus.
 
-    - The API is pinned (104 tests pass, and the full `data -> split -> sampler ->
-      EpisodeRunner -> AdaptiveGate` chain was smoke-tested on a real on-disk corpus),
-      but the exact order in which the sampler consumes its RNG is not recoverable from
-      any of that. So the reconstruction is **not guaranteed to redraw the episodes
-      that produced the tables already on record**. Recover `~/arc/src/arc/data/` from
-      the box and diff it; where they differ, the box's copy wins for reproducing
-      existing numbers.
-    - `make_splits(mode='group_disjoint')` now partitions objects **stratified by
-      class** rather than in one global shuffle. On EuroSAT this changes nothing
-      material (every image is its own object, 27,000 of them, every class lands in
-      every split either way). It matters for a corpus with few objects per class — at
-      12 classes x ~5 physical fibers, a global shuffle hands a 10% validation split
-      six objects in total and most classes are simply absent from it, after which the
-      sampler cannot build 5-way episodes. See §7; if the box's copy does not stratify,
-      this is a deliberate change and the EuroSAT tables should be re-checked against
-      it before Level 2 work builds on them.
+    A reconstruction built from the test suite and call sites was committed first, while
+    the box was unreachable, and is superseded. It differed in four ways that each
+    would have moved the numbers, which is worth knowing as a measure of how little of
+    this is inferable from an API: the eval transform (`Resize(size*1.14)` +
+    `CenterCrop` versus a direct square resize), `group_disjoint` assignment (stable
+    `blake2b` hash of `(seed, group)` versus an RNG permutation), class selection order
+    within an episode, and whether a class too thin for `k_shot + n_query` raises or is
+    silently dropped. Two of its judgement calls remain open and are logged in §9.6.
 
 11. `--exclude data` in the sync tar matched `src/arc/data/`, shipping a package with a
     hole in it.
