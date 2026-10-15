@@ -68,9 +68,36 @@ else
     echo "[skip] baseline LR sweep already done"
 fi
 
+# -- 1b. extend the grid upward for BatchNorm-only --------------------------
+# Stage 1 ended with bn_only_ft pinned to the top of the grid at both 1- and 5-shot
+# (lr=1e-2), so its "optimum" was only a lower bound and stage 2 aborted -- which is
+# the check doing its job. At 5-shot it was still climbing steeply (43.33 -> 46.32 ->
+# 48.65 across 1e-3/3e-3/1e-2), already within a point of full fine-tuning's 49.55.
+# At 1-shot it had nearly flattened (29.83 -> 29.92), so it is probably close there.
+#
+# Every other baseline has an interior optimum and is not re-run. ISIC wants a much
+# higher BatchNorm learning rate than EuroSAT, where bn_only_ft peaked at 1e-3..3e-3
+# and had collapsed by 3e-2 -- consistent with a larger domain shift needing the
+# normalisation statistics to move further. The extension goes to 3e-1 so the collapse
+# is captured on this corpus rather than assumed from the other one.
+if [ ! -f results/isic_sweep_ext/.done ]; then
+    stage "extending the LR grid upward for bn_only_ft (12 configs, ~25 min)"
+    $PY experiments/sweep_lr.py $DATA_ARGS \
+        --k-shot 1 5 --episodes "$EPISODES" \
+        --baselines bn_only_ft \
+        --lrs 3e-2 1e-1 3e-1 \
+        --inner-steps 5 20 \
+        --out results/isic_sweep_ext \
+        || fail "bn_only_ft grid extension failed"
+    touch results/isic_sweep_ext/.done
+else
+    echo "[skip] bn_only_ft grid extension already done"
+fi
+
 # -- 2. merge and verify the grid -------------------------------------------
 stage "merging and checking the tuning grid"
-$PY experiments/merge_sweeps.py results/isic_sweep --dataset isic --out "$TUNED" \
+$PY experiments/merge_sweeps.py results/isic_sweep results/isic_sweep_ext \
+    --dataset isic --out "$TUNED" \
     || fail "merge failed"
 
 # merge_sweeps prints a warning for grid-edge optima but exits 0, so enforce it here.
@@ -80,7 +107,12 @@ $PY experiments/merge_sweeps.py results/isic_sweep --dataset isic --out "$TUNED"
 $PY - <<'PYEOF' || fail "tuning incomplete or still truncated -- see above"
 import json, sys
 best = json.load(open("results/best_lr_isic.json"))
-raw = json.load(open("results/isic_sweep/sweep_isic_raw.json"))
+raw = []
+for d in ("results/isic_sweep", "results/isic_sweep_ext"):
+    try:
+        raw.extend(json.load(open(f"{d}/sweep_isic_raw.json")))
+    except FileNotFoundError:
+        pass
 want = {"last_layer_ft", "stage4_ft", "bn_only_ft", "progressive_unfreeze", "full_ft"}
 shots = ("1", "5")
 
