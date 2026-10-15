@@ -1,8 +1,10 @@
 # ARC — Handoff
 
-**Last updated:** 2026-10-15
-**State:** Level 0 complete and reportable. Level 1 built, tuned, and producing a
-null result. Level 2 not started.
+**Last updated:** 2026-10-16
+**State:** Level 0 complete and reportable on EuroSAT. Level 1 built and tuned, and
+now producing a null result on **two** datasets — the signals are actively harmful on
+the harder one. ISIC tuning complete (`docs/RESULTS_ISIC.md`); ISIC test reporting not
+run. Level 2 not started.
 
 > **§6 landmine 16:** `src/arc/data/` was absent from every commit until 2026-10-15 (a
 > `.gitignore` pattern ate it). The original has since been recovered from the compute
@@ -56,13 +58,15 @@ Everything in section 4 that is marked *CPU* works fine in a cloud session today
 | Level | What | State |
 |---|---|---|
 | 0 | Six tuned baselines, EuroSAT, 1/5/10/20-shot | **Done.** `docs/RESULTS_LEVEL0.md` |
-| 1 | Drift + utility signals, adaptive gate | **Built, tuned, null result.** See §5 |
+| 0 | Five tuned baselines, ISIC, 1/5-shot | **Tuned on val; test not run.** `docs/RESULTS_ISIC.md` |
+| 1 | Drift + utility signals, adaptive gate | **Built, tuned, null on EuroSAT *and* ISIC.** See §5 |
 | 2 | Topology, stability, novelty; learned gate; ablations | Not started |
 | 3 | FBSDE controller | Not started (explicit stretch goal) |
 
-**Datasets:** EuroSAT wired and used throughout. ISIC downloaded and verified on the
-box (`~/arc/data/isic2018`, 10,015 images, lesion metadata present) but **never run**.
-ChestX loader written and unit-tested, data not obtainable automatically (§6).
+**Datasets:** EuroSAT wired and used throughout. **ISIC now run** — baseline LR sweep
+(172 configs) and gate sweep (27 configs x 2 shots) complete on val, ~8.5 GPU-hours;
+see `docs/RESULTS_ISIC.md`. ChestX loader written and unit-tested, data not obtainable
+automatically (§10).
 
 **Test suite:** 110 tests, CPU, ~35 s. The six `easyfsl` ProtoNet cross-validation
 tests need `pip install -e ".[dev]"`; without it they skip as a single entry and the
@@ -178,6 +182,41 @@ Two caveats before concluding the idea is dead:
   it does. `fraction_modified` stays at 84–98% in every configuration, so the
   parameter-efficiency win ARC needs against `bn_only_ft` is not being produced either.
   A hard/sparse gate (Gumbel-sigmoid, or an explicit sparsity penalty) is untested.
+
+### ISIC — the null replicates and strengthens (2026-10-16)
+
+Full numbers in `docs/RESULTS_ISIC.md`. The three things that change the picture:
+
+**1. Headroom is real here.** The `lr=3e-6` column stands in for a frozen backbone at
+~38.0 at 5-shot against a best tuned baseline of 49.55 — **11.5 points**, versus 3.1 on
+EuroSAT. The reason for moving datasets was sound. (1-shot on ISIC spans only 27.6–30.9
+and cannot separate methods; treat it as uninformative.)
+
+**2. `bn_only_ft` ties `full_ft`: 49.44 vs 49.55 at 5-shot, 0.22% of parameters versus
+~94%.** Its optimum needed a grid extension to 3e-2 — an order of magnitude above
+EuroSAT's. ARC's "adapt selectively, modify less" pitch no longer has a strong incumbent;
+it has an incumbent holding the ceiling at 1/400th of the cost.
+
+**3. Both gate signals are harmful, more so than on EuroSAT:**
+
+```
+marginal effect      EuroSAT 1 / 5      ISIC 1 / 5
+utility              -0.05 / +0.04      -0.18 / -1.43
+drift                -0.10 / -1.20      -0.30 / -3.33
+```
+
+And `fraction_modified` is 97.7–98.4% across every ISIC 5-shot configuration — worse
+than EuroSAT's 84–98%. No efficiency win is produced on either dataset.
+
+**The reversal that matters.** On EuroSAT at 5-shot `stage4_ft` (87.73) beat `full_ft`
+(87.21): adapting only the top beat adapting everything, which is the observation ARC's
+premise rests on. On ISIC it reverses — `full_ft` 49.55 > `stage4_ft` 46.52 — while
+`bn_only_ft`, which adapts BatchNorm in *every* unit rather than selecting by depth,
+matches the best. The axis that pays on ISIC is **parameter type, not layer depth**. If
+that survives test, ARC's layer-wise granularity may be the wrong granularity for this
+kind of shift, and a controller over parameter groups (BN / conv / downsample) is the
+more promising object. That is a redesign, and a question for him before more compute
+goes into the current formulation.
 
 **Interpretation worth putting to Prof. Hemrajani:** drift rises monotonically with
 depth (measured: 0.000 at the stem to 0.33 at `layer4_2`). Penalising drift therefore
@@ -321,13 +360,27 @@ finding, and check the diff first.
    images sharing a lesion with another, which is exactly the hazard flagged there.
 2. **Is the drift sign convention right?** See §5. This is his signal and his equation;
    the empirical structure suggests penalising drift freezes the wrong layers.
-3. **Where does ARC get tested?** Strong recommendation: ISIC (downloaded, ready) and
-   ChestX, not EuroSAT. EuroSAT lacks the headroom to distinguish methods.
-4. **Does Level 1 get rescued or reported as a negative?** Options, cheapest first:
-   (a) run the existing gate on ISIC — one command, data is already there;
-   (b) try drift as a loss penalty (`λ₁·D_repr`) instead of a gate input;
-   (c) try a hard/sparse gate so parameter efficiency actually materialises;
-   (d) invert the drift sign and see.
+3. **Where does ARC get tested?** ISIC tuning is done and vindicated the move (11.5
+   points of headroom vs 3.1). Open part: **should ISIC test reporting run now?** The
+   recommendation in `docs/RESULTS_ISIC.md` §5 is yes for the baselines (~9-10 GPU-hours;
+   "0.22% of parameters matches all of them on a hard target" is a contribution in its
+   own right and the bar every ARC variant must clear) and **not yet for the gate**,
+   which would buy a more precise measurement of a negative already held twice. ChestX
+   still blocked on data (§10).
+4. **Does Level 1 get rescued or reported as a negative?** (a) is now done and the
+   answer is no — the null replicates on ISIC with the signals actively harmful. The
+   remaining options, re-ordered by what the ISIC numbers imply rather than by cost:
+   (c) **hard/sparse gate** — the only one attacking the axis ARC can still win on,
+   since the accuracy ceiling is already held by `bn_only_ft` at 0.22% of parameters.
+   Until the gate can reach zero, "modify less" has no mechanism, let alone evidence;
+   (e) **a parameter-type controller instead of a layer controller** — new, implied by
+   the §5 reversal, not suggested by the EuroSAT data;
+   (b) **drift as a loss penalty** (`λ₁·D_repr`) — drift plainly carries signal, it is
+   strong enough to cost 3.3 points when weighted; it looks like the wrong sign or the
+   wrong place;
+   (d) **invert the drift sign** — cheap, but ISIC weakens the prior: inverting pushes
+   adaptation toward the high-drift top, which here is `stage4_ft`, and `stage4_ft`
+   *loses* to `full_ft` on this corpus.
    A clean negative is publishable — "lightweight representation-feedback gating does
    not beat a tuned constant gate, and BatchNorm-only adaptation is a very strong
    baseline" is a useful result — but it is a different paper from the one proposed.

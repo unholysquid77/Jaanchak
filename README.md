@@ -14,14 +14,18 @@ before touching anything.
 |---|---|
 | [`docs/ARC_SPEC.md`](docs/ARC_SPEC.md) | engineering design and the experimental ladder |
 | [`docs/RESULTS_LEVEL0.md`](docs/RESULTS_LEVEL0.md) | tuned baseline table (complete) |
-| [`docs/RESULTS_LEVEL1.md`](docs/RESULTS_LEVEL1.md) | adaptive gate (null result) |
+| [`docs/RESULTS_LEVEL1.md`](docs/RESULTS_LEVEL1.md) | adaptive gate on EuroSAT (null result) |
+| [`docs/RESULTS_ISIC.md`](docs/RESULTS_ISIC.md) | ISIC: tuned baselines and the gate (null replicates) |
 | [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md) | every run performed, including the void ones, with exact numbers |
 | [`docs/DATA_REQUEST.md`](docs/DATA_REQUEST.md) | what is needed from the forensic datasets |
 
 ## State
 
-Level 0 (baselines) complete and reportable. Level 1 (drift + utility signals, adaptive
-gate) built and tuned, currently a null result on EuroSAT. Levels 2 and 3 not started.
+Level 0 (baselines) complete and reportable on EuroSAT, tuned on ISIC. Level 1 (drift +
+utility signals, adaptive gate) built and tuned, and a null result on **both** datasets —
+on ISIC the signals are actively harmful and no parameter-efficiency win is produced.
+BatchNorm-only adaptation matches full fine-tuning there at 0.22% of the parameters.
+Levels 2 and 3 not started.
 
 ## Quickstart
 

@@ -429,9 +429,48 @@ API-correct, fully green and still not reproduce the experiment.
 
 ---
 
+## 6c. ISIC — baselines and the gate (VALID, val only; 2026-10-15/16)
+
+~8.5 GPU-hours. `results/isic_sweep` (160 configs), `results/isic_sweep_ext` (12),
+`results/gate_sweep_isic` (27 x 2 shots + LR selection). Split `group_disjoint` by
+lesion at 0.1/0.4/0.5, split seed 0, episode seed 10,000. Headline numbers and the full
+grids are in `docs/RESULTS_ISIC.md`; recorded here as the run log.
+
+Stage 1 (160 configs, 5.2h) ended with `bn_only_ft` pinned to the top of the 3e-6..1e-2
+grid at both shots, and stage 2's grid-edge check aborted the driver — landmine 8 caught
+at the point it matters rather than in the paper. The extension (3e-2/1e-1/3e-1,
+12 configs, 23 min) found the optimum and the collapse:
+
+```
+bn_only_ft 5-shot 20 steps
+  1e-03:43.33  3e-03:46.32  1e-02:48.65  3e-02:49.44*  1e-01:38.71  3e-01:19.97
+```
+
+49.44 against `full_ft`'s 49.55, at 0.22% of parameters versus ~94%.
+
+Gate sweep (3h) marginal effects, against the EuroSAT run in §3:
+
+```
+                 EuroSAT 1 / 5      ISIC 1 / 5
+utility          -0.05 / +0.04      -0.18 / -1.43
+drift            -0.10 / -1.20      -0.30 / -3.33
+fraction_modified   84-98 %         92.5-94.7 % (1-shot), 97.7-98.4 % (5-shot)
+```
+
+**Not yet run on ISIC:** test reporting (stage 4 of `scripts/run_isic.sh`, gated behind
+`REPORT=1`), 10- and 20-shot, and `frozen_proto` (non-tunable, so the sweep skips it —
+the `lr=3e-6` column stands in for it at ~38.0 on 5-shot).
+
+Cross-sweep caveat: the gate sweep used 75 episodes per config and the baseline sweep
+100. Episodes are seeded per index from the same seed, so the gate's 75 are exactly the
+first 75 of the baselines' 100 — overlapping but not identical. Differences of a point
+or two between the two sweeps are not meaningful.
+
+---
+
 ## 7. What has never been run
 
-- **ISIC** — downloaded, verified, loader tested. Zero experiments.
+- **ISIC test split** — val tuning complete (§6c); no test numbers, no 10/20-shot.
 - **ChestX** — loader written and unit-tested, data not obtainable automatically.
 - **Any forensic dataset** — still unconfirmed to exist.
 - **Leave-one-out inner objective** — implemented, never ablated against two-view.
