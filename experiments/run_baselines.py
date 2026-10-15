@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from arc.backbones.tapped import TappedBackbone  # noqa: E402
 from arc.data.base import EpisodicSampler, make_splits  # noqa: E402
+from arc.data.medical import chestx, isic  # noqa: E402
 from arc.data.sources import ImageFolderSource, build_transform, eurosat  # noqa: E402
 from arc.eval.metrics import format_summary, summarise  # noqa: E402
 from arc.heads.protonet import ProtoHead  # noqa: E402
@@ -62,14 +63,33 @@ def manifest(args: argparse.Namespace) -> dict:
     }
 
 
+# Per-dataset default locations, so --dataset isic needs no --data-root. Matches the
+# layout scripts/download_data.sh produces.
+DEFAULT_ROOTS = {
+    "eurosat": "data/eurosat",
+    "isic": "data/isic2018",
+    "chestx": "data/chestx",
+}
+
+
 def build_source(args: argparse.Namespace):
+    root = args.data_root or DEFAULT_ROOTS.get(args.dataset)
     if args.dataset == "eurosat":
-        return eurosat(args.data_root, size=args.image_size)
+        return eurosat(root, size=args.image_size)
+    if args.dataset == "isic":
+        # HAM10000_metadata.csv carries lesion_id, the only record of which images are
+        # views of the same physical lesion -- 10,015 images from 7,470 lesions, 45% of
+        # them sharing. Without it group_disjoint cannot prevent leakage, so it is
+        # passed whenever present and arc.data.medical warns loudly when it is not.
+        meta = Path(root) / "HAM10000_metadata.csv"
+        return isic(root, size=args.image_size, metadata=meta if meta.exists() else None)
+    if args.dataset == "chestx":
+        return chestx(root, size=args.image_size)
     if args.dataset == "imagefolder":
-        if not args.data_root:
+        if not root:
             raise SystemExit("--data-root is required for --dataset imagefolder")
         return ImageFolderSource(
-            args.data_root,
+            root,
             transform=build_transform(args.image_size),
             group_pattern=args.group_pattern,
         )
@@ -78,8 +98,10 @@ def build_source(args: argparse.Namespace):
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--dataset", default="eurosat", choices=["eurosat", "imagefolder"])
-    p.add_argument("--data-root", default="data/eurosat")
+    p.add_argument("--dataset", default="eurosat",
+                   choices=["eurosat", "isic", "chestx", "imagefolder"])
+    p.add_argument("--data-root", default=None,
+                   help="defaults per dataset; see DEFAULT_ROOTS")
     p.add_argument("--group-pattern", default=None, help="regex capturing specimen id")
     # group_disjoint is the default because cross-domain few-shot targets are
     # small-vocabulary (EuroSAT has 10 classes; the forensic sets have 8-12). Holding

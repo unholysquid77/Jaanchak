@@ -93,9 +93,16 @@ def main() -> None:
     p.add_argument("--warmup", type=int, default=1)
     p.add_argument("--lrs", type=float, nargs="+",
                    default=[1e-5, 3e-5, 1e-4, 3e-4])
-    p.add_argument("--biases", type=float, nargs="+", default=[0.0, 2.0, 4.0])
-    p.add_argument("--utilities", type=float, nargs="+", default=[0.0, 2.0, 4.0])
-    p.add_argument("--drifts", type=float, nargs="+", default=[0.0, 4.0, 8.0])
+    # Scaled for *standardised* signals (zero mean, unit variance across units), which
+    # is what AdaptiveGate(normalise=True) now feeds the sigmoid. The previous defaults
+    # (0/2/4 and 0/4/8) date from the raw-signal era: against signals of magnitude ~0.1
+    # a bias of 4 drove the gate to 0.997 at every unit, spread 0.004, and ARC ran as
+    # exactly full fine-tuning while appearing to work. That is the void sweep in
+    # results/gate_sweep_saturated/ (docs/HANDOFF.md section 6, landmine 5) -- these
+    # are the grids the valid sweep actually used.
+    p.add_argument("--biases", type=float, nargs="+", default=[0.0, 1.0, 2.0])
+    p.add_argument("--utilities", type=float, nargs="+", default=[0.0, 1.0, 2.0])
+    p.add_argument("--drifts", type=float, nargs="+", default=[0.0, 1.0, 2.0])
     p.add_argument("--grad-checkpoint", action="store_true")
     p.add_argument("--no-amp", action="store_true")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
