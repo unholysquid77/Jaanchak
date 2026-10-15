@@ -27,11 +27,15 @@ gate) built and tuned, currently a null result on EuroSAT. Levels 2 and 3 not st
 
 ```bash
 pip install -e ".[dev]"
-PYTHONPATH=src python -m pytest tests -q        # 82 tests, CPU, ~3 min
+PYTHONPATH=src python -m pytest tests -q        # 104 tests, CPU, ~25 s
 ```
 
 GPU experiments run on a separate machine; see `docs/HANDOFF.md` section 1, which also
 explains why a cloud session cannot reach it.
+
+`src/arc/data/` was reconstructed on 2026-10-15 after `.gitignore` kept it out of every
+commit — `docs/HANDOFF.md` section 6, landmine 16. Read it before re-running anything
+whose numbers are already on record.
 
 ## One thing to know about the design
 

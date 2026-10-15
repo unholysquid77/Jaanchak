@@ -1,8 +1,14 @@
+# Anchored to the repository root on purpose. An unanchored `data/` matches a
+# directory of that name at ANY depth, which silently swallowed the whole of
+# src/arc/data/ -- the package was absent from every commit, so a fresh clone could
+# not import arc.train.episodic at all. Same class of bug as the `--exclude data`
+# in scripts/sync.sh (docs/HANDOFF.md section 6, landmine 11). Keep the slashes.
+/data/
+/results/
+/logs/
+
 __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
-data/
-results/
-logs/
 *.egg-info/

@@ -4,6 +4,12 @@
 **State:** Level 0 complete and reportable. Level 1 built, tuned, and producing a
 null result. Level 2 not started.
 
+> ⚠ **Read §6 landmine 16 first if you are about to re-run anything.** `src/arc/data/`
+> was absent from every commit until 2026-10-15 (a `.gitignore` pattern ate it) and the
+> version now in the repo is a **reconstruction**. The authoritative copy is on the
+> compute box. Diff them before re-deriving any number already in
+> `docs/EXPERIMENT_LOG.md`.
+
 This document is the single entry point for anyone (human or agent) picking the project
 up. Read it before touching code. `docs/ARC_SPEC.md` holds the engineering design;
 `docs/RESULTS_LEVEL0.md` and `docs/RESULTS_LEVEL1.md` hold the headline tables;
@@ -58,6 +64,10 @@ Everything in section 4 that is marked *CPU* works fine in a cloud session today
 box (`~/arc/data/isic2018`, 10,015 images, lesion metadata present) but **never run**.
 ChestX loader written and unit-tested, data not obtainable automatically (§6).
 
+**Test suite:** 104 tests, CPU, ~25 s. (Was reported as 82 — that count predated the
+`arc.data` tests and assumed `easyfsl` absent, which silently skips the six ProtoNet
+cross-validation tests as a single entry.)
+
 **The forensic datasets (FFM/GFA/PCF) still do not exist as far as we know.** This was
 flagged on day one in `docs/DATA_REQUEST.md` and has never been resolved. Everything
 built so far is dataset-agnostic, so it is not blocking, but the application claim in
@@ -72,9 +82,9 @@ src/arc/
   backbones/tapped.py     ResNet-50 split into 17 gated units + frozen twin.
                           THE core mechanism. Read its docstring first.
   data/base.py            FewShotSource protocol, leakage-safe splits, episodic sampler
-  data/sources.py         EuroSAT, ImageFolder, transforms
-  data/pathlist.py        corpus from explicit (path, label, group) lists
-  data/medical.py         ISIC + ChestX loaders
+  data/sources.py         EuroSAT, ImageFolder, transforms            (RECONSTRUCTED)
+  data/pathlist.py        corpus from explicit (path, label, group) lists  (RECONSTRUCTED)
+  data/medical.py         ISIC + ChestX loaders                       (RECONSTRUCTED)
   heads/protonet.py       ProtoHead (cosine default) + linear probe
   train/episodic.py       EpisodeRunner: per-episode adaptation. Everything runs here.
   train/objectives.py     two-view / leave-one-out / (degenerate) self objectives
@@ -223,6 +233,36 @@ listed because the same classes of error will recur.
 
 **Infrastructure family**
 
+16. **`.gitignore` ate the entire data package.** `data/` is unanchored, so git matched
+    it at *every* depth — including `src/arc/data/`. The package was therefore in no
+    commit at all: a fresh clone could not `import arc.train.episodic`, every
+    experiment script failed at its first import, and `pytest` collected 0 of the 6
+    test files that reach it. It survived only because both machines that ever ran the
+    code had the files on disk already, untracked. This is landmine 11 a second time
+    through a different door, and it went unnoticed for the whole project.
+
+    Fixed by anchoring the patterns (`/data/`, `/results/`, `/logs/`) and by
+    reconstructing `base.py`, `sources.py`, `medical.py` and `pathlist.py` from the
+    test suite, the call sites and the recorded measurements. **Two consequences that
+    matter:**
+
+    - The API is pinned (104 tests pass, and the full `data -> split -> sampler ->
+      EpisodeRunner -> AdaptiveGate` chain was smoke-tested on a real on-disk corpus),
+      but the exact order in which the sampler consumes its RNG is not recoverable from
+      any of that. So the reconstruction is **not guaranteed to redraw the episodes
+      that produced the tables already on record**. Recover `~/arc/src/arc/data/` from
+      the box and diff it; where they differ, the box's copy wins for reproducing
+      existing numbers.
+    - `make_splits(mode='group_disjoint')` now partitions objects **stratified by
+      class** rather than in one global shuffle. On EuroSAT this changes nothing
+      material (every image is its own object, 27,000 of them, every class lands in
+      every split either way). It matters for a corpus with few objects per class — at
+      12 classes x ~5 physical fibers, a global shuffle hands a 10% validation split
+      six objects in total and most classes are simply absent from it, after which the
+      sampler cannot build 5-way episodes. See §7; if the box's copy does not stratify,
+      this is a deliberate change and the EuroSAT tables should be re-checked against
+      it before Level 2 work builds on them.
+
 11. `--exclude data` in the sync tar matched `src/arc/data/`, shipping a package with a
     hole in it.
 12. `print()` is block-buffered to a file while `logging` is not, so a healthy run looks
@@ -246,6 +286,8 @@ These are design decisions, not drift. Each is documented at its definition site
 | `U_l = ⟨∇L_support, ∇L_query⟩` | gradient agreement between two augmented draws of the support set | **Query labels are not available at test time.** Using them is label leakage that would inflate every ARC number invisibly. Spec's version kept as `oracle_utility()` for meta-training and as an upper bound. |
 | squared-Euclidean ProtoNet head | cosine, learnable scale | Squared-Euclidean saturates to zero loss at 2048-d (§6.1). `sqeuclidean` retained, dimension-normalised, as an ablation. |
 | gate consumes raw signals | signals standardised across units per update | Raw signals saturate the gate into a constant (§6.5). Raw behaviour kept behind `normalise=False`. |
+| (unstated) group-disjoint splitting | the object partition is **stratified by class** | A single global shuffle leaves most classes out of a small split once a class has only a handful of physical objects — the projected shape of the forensic sets. Each object is assigned its modal class and still moves to exactly one split, so the no-object-spans-a-split guarantee is untouched. Introduced during the §6.16 reconstruction. |
+| (unstated) episodes may share objects between support and query | same, by default; `EpisodicSampler(group_disjoint_queries=True)` separates them | The published cross-domain protocol does not separate them, and matching it is what keeps our numbers comparable. But on ISIC 45% of images share a lesion, so a support/query pair from one lesion makes an episode easier for reasons unrelated to adaptation. Available as a reported sensitivity check; see §9.5. |
 
 ---
 
@@ -262,6 +304,15 @@ ISIC loader verified against the real corpus.
 - `results/discarded/` — baseline cells run at untuned or truncated settings
 
 `results/gate_sweep/` is the current, valid gate sweep.
+
+**Reproducibility caveat added 2026-10-15.** Everything above remains valid as a
+*measurement* — it was produced by the code that was on the box at the time, and the
+result JSONs carry their manifests. What is no longer guaranteed is *re-derivability
+from this repository*, because the `arc.data` package those runs used was never
+committed (§6.16) and the copy here is a reconstruction. Recovering
+`~/arc/src/arc/data/` from the box and committing it closes this; until then, treat a
+re-run that disagrees with the tables as a difference in the sampler, not a new
+finding, and check the diff first.
 
 ---
 
