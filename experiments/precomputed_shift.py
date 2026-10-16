@@ -73,6 +73,7 @@ from arc.eval.metrics import episode_metrics, mean_ci95  # noqa: E402
 from arc.heads.protonet import ProtoHead  # noqa: E402
 from arc.train.baselines import BASELINES  # noqa: E402
 from arc.train.episodic import EpisodeRunner  # noqa: E402
+from arc.train.objectives import inner_loss  # noqa: E402
 
 log = logging.getLogger("arc.precomputed_shift")
 
@@ -156,6 +157,9 @@ def main() -> None:
                    default=["identity", "shift", "scale", "both"])
     p.add_argument("--unit-subsets", nargs="+",
                    default=["all", "layer4", "no_layer4", "stem_layer1"])
+    p.add_argument("--fit-steps", type=int, default=20,
+                   help="support-set steps for the 'fitted' variant (17 params)")
+    p.add_argument("--fit-lr", type=float, default=0.1)
     p.add_argument("--split-seed", type=int, default=0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--no-pretrained", action="store_true", help="smoke-testing only")
@@ -193,7 +197,8 @@ def main() -> None:
     )
 
     acc_g: dict[str, list] = {u: [] for u in units}
-    acc_b: dict[str, list] = {u: [] for u in units}
+    acc_mr: dict[str, list] = {u: [] for u in units}
+    acc_ma: dict[str, list] = {u: [] for u in units}
     acc_s: dict[str, list] = {u: [] for u in units}
     started = time.perf_counter()
     for i, episode in enumerate(train_sampler):
@@ -215,9 +220,17 @@ def main() -> None:
                 continue
             m_ref, s_ref = ref[u]
             m_adp, s_adp = adp[u]
-            g = s_adp / s_ref.clamp_min(EPS)
-            acc_g[u].append(g)
-            acc_b[u].append(m_adp - m_ref * g)      # pairs with gamma, for 'both'
+            # log-space: gamma is a ratio, and the arithmetic mean of ratios is the
+            # wrong estimator for something applied multiplicatively through 17 units
+            # -- it is biased upward and compounds. The geometric mean (exp of the mean
+            # log) is the right centre for a multiplicative quantity. The first run
+            # used the arithmetic mean and every scale variant collapsed to chance
+            # (20.13 with all units), which is what that bias looks like after 17
+            # compositions.
+            g = (s_adp / s_ref.clamp_min(EPS)).clamp_min(EPS)
+            acc_g[u].append(g.log())
+            acc_mr[u].append(m_ref)
+            acc_ma[u].append(m_adp)
             acc_s[u].append(m_adp - m_ref)          # shift alone, gamma = 1
         if (i + 1) % 25 == 0:
             rate = (time.perf_counter() - started) / (i + 1)
@@ -225,8 +238,13 @@ def main() -> None:
                      args.extract_episodes, rate,
                      rate * (args.extract_episodes - i - 1) / 60)
 
-    gamma = {u: torch.stack(v).mean(0) for u, v in acc_g.items() if v}
-    beta_both = {u: torch.stack(v).mean(0) for u, v in acc_b.items() if v}
+    gamma = {u: torch.stack(v).mean(0).exp() for u, v in acc_g.items() if v}
+    # beta must pair with the gamma actually used, so it is formed from the averaged
+    # means and the geometric-mean gamma rather than averaged independently.
+    beta_both = {
+        u: torch.stack(acc_ma[u]).mean(0) - torch.stack(acc_mr[u]).mean(0) * gamma[u]
+        for u in gamma
+    }
     beta_shift = {u: torch.stack(v).mean(0) for u, v in acc_s.items() if v}
     log.info("extracted corrections for %d units", len(gamma))
 
@@ -268,27 +286,73 @@ def main() -> None:
     frozen_ref, frozen_ci = mean_ci95(frozen_accs)
     log.info("control: frozen_proto baseline %.2f +/- %.2f", 100 * frozen_ref, 100 * frozen_ci)
 
+    def fit_magnitude(ep, beta: dict[str, torch.Tensor], steps: int, lr: float):
+        """Fit ONE scalar per unit, scaling a precomputed direction, on the support set.
+
+        17 parameters for ResNet-50. This is the Level-1 gate's idea with the
+        dimensionality problem removed: the gate failed because it modulated the
+        magnitude of a 23M-parameter update estimated from 25 images, while this
+        modulates the magnitude of a 17-dimensional precomputed correction. The
+        backbone stays frozen throughout -- only the 17 scalars move.
+        """
+        names = [u for u in backbone.unit_names if u in beta]
+        a = torch.zeros(len(names), device=runner.device, requires_grad=True)
+        direction = {u: beta[u].to(device=runner.device, dtype=torch.float32)
+                     for u in names}
+        opt = torch.optim.Adam([a], lr=lr)
+
+        def embed(x):
+            h = x
+            for i, u in enumerate(backbone.unit_names):
+                h = backbone.frozen[u](h)
+                if u in direction:
+                    j = names.index(u)
+                    h = h + a[j] * direction[u].view(1, -1, *([1] * (h.ndim - 2)))
+            return torch.flatten(backbone.pool(h), 1)
+
+        for _ in range(steps):
+            opt.zero_grad(set_to_none=True)
+            loss = inner_loss(embed, ep.support_x, ep.support_y, ep.n_way, head,
+                              objective=runner.objective)
+            loss.backward()
+            opt.step()
+        with torch.no_grad():
+            return embed(ep.support_x), embed(ep.query_x), a.detach().cpu()
+
     backbone.eval()
     rows = []
     for variant in args.variants:
         for which in (["all"] if variant == "identity" else args.unit_subsets):
-            g = {"identity": None, "shift": None, "scale": gamma, "both": gamma}[variant]
+            g = {"identity": None, "shift": None, "scale": gamma, "both": gamma,
+                 "fitted": None}[variant]
             b = {"identity": None, "shift": beta_shift, "scale": None,
-                 "both": beta_both}[variant]
+                 "both": beta_both, "fitted": beta_shift}[variant]
             g, b = subset(g, which), subset(b, which)
 
-            accs = []
+            accs, scalars = [], []
             src = episodes if episodes is not None else val_sampler
             for episode in src:
                 ep = episode if episodes is not None else episode.to(runner.device)
-                with torch.no_grad():
-                    se = apply_correction(backbone, ep.support_x, g, b)
-                    qe = apply_correction(backbone, ep.query_x, g, b)
-                    logits = head(se, ep.support_y, qe, ep.n_way)
+                if variant == "fitted":
+                    se, qe, a = fit_magnitude(ep, b, args.fit_steps, args.fit_lr)
+                    scalars.append(a.tolist())
+                    with torch.no_grad():
+                        logits = head(se, ep.support_y, qe, ep.n_way)
+                else:
+                    with torch.no_grad():
+                        se = apply_correction(backbone, ep.support_x, g, b)
+                        qe = apply_correction(backbone, ep.query_x, g, b)
+                        logits = head(se, ep.support_y, qe, ep.n_way)
                 accs.append(episode_metrics(logits.float(), ep.query_y, ep.n_way).accuracy)
             mean, ci = mean_ci95(accs)
-            rows.append({"variant": variant, "units": which,
-                         "accuracy": mean, "ci95": ci, "n": len(accs)})
+            row = {"variant": variant, "units": which,
+                   "accuracy": mean, "ci95": ci, "n": len(accs)}
+            if scalars:
+                import numpy as _np
+                arr = _np.asarray(scalars)
+                row["magnitude_mean"] = arr.mean(0).tolist()
+                row["magnitude_sd"] = arr.std(0).tolist()
+            rows.append(row)
             log.info("%-9s %-12s acc %.2f +/- %.2f", variant, which, 100 * mean, 100 * ci)
 
     # -- report --------------------------------------------------------------

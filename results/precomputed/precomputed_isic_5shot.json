@@ -1,0 +1,136 @@
+{
+  "config": {
+    "dataset": "isic",
+    "data_root": null,
+    "group_pattern": null,
+    "fractions": [
+      0.1,
+      0.4,
+      0.5
+    ],
+    "arch": "resnet50",
+    "image_size": 224,
+    "n_way": 5,
+    "k_shot": 5,
+    "n_query": 3,
+    "eval_n_query": 15,
+    "extract_episodes": 100,
+    "eval_episodes": 200,
+    "extract_baseline": "full_ft",
+    "inner_steps": 20,
+    "inner_lr": 0.0001,
+    "variants": [
+      "identity",
+      "shift",
+      "scale",
+      "both"
+    ],
+    "unit_subsets": [
+      "all",
+      "layer4",
+      "no_layer4",
+      "stem_layer1"
+    ],
+    "split_seed": 0,
+    "seed": 0,
+    "no_pretrained": false,
+    "grad_checkpoint": false,
+    "no_amp": false,
+    "device": "cuda",
+    "out": "results/precomputed"
+  },
+  "frozen_control": 0.3802666666666667,
+  "results": [
+    {
+      "variant": "identity",
+      "units": "all",
+      "accuracy": 0.3804,
+      "ci95": 0.009654414857467505,
+      "n": 200
+    },
+    {
+      "variant": "shift",
+      "units": "all",
+      "accuracy": 0.42273333333333324,
+      "ci95": 0.009478427533456135,
+      "n": 200
+    },
+    {
+      "variant": "shift",
+      "units": "layer4",
+      "accuracy": 0.395,
+      "ci95": 0.009890631722404288,
+      "n": 200
+    },
+    {
+      "variant": "shift",
+      "units": "no_layer4",
+      "accuracy": 0.45466666666666666,
+      "ci95": 0.009945239769936103,
+      "n": 200
+    },
+    {
+      "variant": "shift",
+      "units": "stem_layer1",
+      "accuracy": 0.3886666666666666,
+      "ci95": 0.0099171622893193,
+      "n": 200
+    },
+    {
+      "variant": "scale",
+      "units": "all",
+      "accuracy": 0.20126666666666665,
+      "ci95": 0.00255756611687969,
+      "n": 200
+    },
+    {
+      "variant": "scale",
+      "units": "layer4",
+      "accuracy": 0.2186,
+      "ci95": 0.006938750001108949,
+      "n": 200
+    },
+    {
+      "variant": "scale",
+      "units": "no_layer4",
+      "accuracy": 0.20379999999999998,
+      "ci95": 0.0059407948145408715,
+      "n": 200
+    },
+    {
+      "variant": "scale",
+      "units": "stem_layer1",
+      "accuracy": 0.3796,
+      "ci95": 0.009875826006234411,
+      "n": 200
+    },
+    {
+      "variant": "both",
+      "units": "all",
+      "accuracy": 0.2,
+      "ci95": 0.0,
+      "n": 200
+    },
+    {
+      "variant": "both",
+      "units": "layer4",
+      "accuracy": 0.2194,
+      "ci95": 0.0068813864288077555,
+      "n": 200
+    },
+    {
+      "variant": "both",
+      "units": "no_layer4",
+      "accuracy": 0.20333333333333337,
+      "ci95": 0.00520610696670206,
+      "n": 200
+    },
+    {
+      "variant": "both",
+      "units": "stem_layer1",
+      "accuracy": 0.3910666666666666,
+      "ci95": 0.010126667725725345,
+      "n": 200
+    }
+  ]
+}
