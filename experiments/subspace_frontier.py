@@ -279,6 +279,20 @@ def main() -> None:
     channels = {u: mean_dir[u].numel() for u in mean_dir}
     log.info("extracted basis for %d units", len(basis))
 
+    # Log the magnitude of the extracted shift per unit. This exists because the first
+    # frontier run reported `shift` at 38.55 while experiments/precomputed_shift.py
+    # reported 45.21 for what should be the identical quantity -- the same mean
+    # displacement over the same train episodes, applied to the same frozen units --
+    # with `identity` agreeing exactly at 38.04 in both. The per-unit statistics and
+    # the application arithmetic were checked and are bit-identical between the two
+    # scripts, so the divergence is in the extracted VECTOR, and a near-zero shift
+    # would explain a +0.51 gain where the other script sees +4.30. Without this line
+    # the two scripts disagree by 6.7 points and neither can be audited.
+    norms = {u: float(mean_dir[u].norm()) for u in mean_dir}
+    log.info("mean |shift| per unit: %s",
+             " ".join(f"{u}={norms[u]:.3f}" for u in backbone.unit_names if u in norms))
+    log.info("total |shift| across units: %.3f", sum(norms.values()))
+
     # -- evaluation: val split, identical episodes across variants ----------
     val_sampler = EpisodicSampler(
         source, splits["val"], n_way=args.n_way, k_shot=args.k_shot,
@@ -359,7 +373,8 @@ def main() -> None:
 
     path = out_dir / f"frontier_{args.dataset}_{args.k_shot}shot.json"
     path.write_text(json.dumps({"config": vars(args), "frozen_control": frozen_ref,
-                                "results": rows, "spectra": spectra}, indent=2))
+                                "results": rows, "spectra": spectra,
+                                "shift_norms": norms}, indent=2))
     print(f"\nwrote {path}", flush=True)
 
 
