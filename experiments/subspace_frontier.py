@@ -21,9 +21,21 @@ numbers from different papers.
 
 `shift` and `rank{k}` use a basis extracted offline from TRAIN-split displacements:
 `beta_l` is the mean per-channel displacement, `V_l` its top-k right singular vectors.
-`ssf` (Lian et al., 2022) is the diagonal reference -- per-channel scale and shift,
-learned per episode, initialised to the identity. `fitted` is the one-parameter
-degenerate case of rank-k along the mean direction.
+`ssf` is the diagonal reference: per-channel scale and shift, learned per episode,
+initialised to the identity. **It is SSF-style, not SSF.** Lian et al. (2022) apply
+scale-and-shift inside ViT blocks and merge the parameters into the weights for
+inference; this inserts the same per-channel affine after each of a ResNet-50's 17
+units, on a frozen backbone, and never merges. The adaptation *form* is theirs; the
+placement, architecture and protocol are not, so their published numbers are not
+comparable to these and must not be quoted alongside them. `fitted` is the
+one-parameter degenerate case of rank-k along the mean direction.
+
+A note on backbone, since it decides who this is comparable to. Four of the five
+nearest methods -- DIPA, SSF, LN-Tune and BOLT -- are vision transformers; only
+Yazdanpanah et al. (2022) is a CNN, because BatchNorm affines only exist in one. The
+diagonal-special-case claim is intrinsically a normalisation-layer claim, so a BN
+network is the right place to make it, and the ViT analogue is LayerNorm-only tuning
+(LN-Tune). That analogue is untested here and is the obvious extension.
 
 The point of the budget axis: `ssf` has 2*C_l coefficients per unit, which is 30,336
 in total for ResNet-50, while rank-8 has 8 per unit, 136 in total. If a non-diagonal
@@ -337,6 +349,8 @@ def main() -> None:
               f"{r['fit_lr']:g}")
     print("\nreference (20 gradient steps on the BACKBONE, not a frozen correction):")
     print("  bn_only_ft  49.4   53,120 params      full_ft  49.6   23.5M params")
+    print("note: 'ssf' is SSF-style ported to ResNet-50, not SSF as published (ViT,")
+    print("in-block, merged at inference). Do not quote their numbers against these.")
     ident = best.get("identity")
     if ident:
         d = 100 * abs(ident["accuracy"] - frozen_ref)
