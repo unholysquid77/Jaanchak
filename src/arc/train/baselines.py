@@ -30,6 +30,10 @@ from arc.train.episodic import (
     StaticController,
     select_all,
     select_batchnorm,
+    select_bn_scale,
+    select_bn_shift,
+    select_conv,
+    select_downsample,
     select_none,
     select_units,
 )
@@ -69,6 +73,22 @@ def _bn_only_ft(backbone: TappedBackbone, inner_steps: int):
     return StaticController(_ones(backbone)), select_batchnorm, inner_steps
 
 
+def _bn_scale_ft(backbone: TappedBackbone, inner_steps: int):
+    return StaticController(_ones(backbone)), select_bn_scale, inner_steps
+
+
+def _bn_shift_ft(backbone: TappedBackbone, inner_steps: int):
+    return StaticController(_ones(backbone)), select_bn_shift, inner_steps
+
+
+def _conv_only_ft(backbone: TappedBackbone, inner_steps: int):
+    return StaticController(_ones(backbone)), select_conv, inner_steps
+
+
+def _downsample_ft(backbone: TappedBackbone, inner_steps: int):
+    return StaticController(_ones(backbone)), select_downsample, inner_steps
+
+
 def _progressive_unfreeze(backbone: TappedBackbone, inner_steps: int):
     """Open units from the top down over the course of the inner loop."""
     n = backbone.n_units
@@ -100,4 +120,23 @@ BASELINES: dict[str, BaselineSpec] = {
         "progressive_unfreeze", "Open units top-down across the inner loop", _progressive_unfreeze
     ),
     "full_ft": BaselineSpec("full_ft", "Fine-tune the entire backbone", _full_ft),
+    # Parameter-type partition. The ISIC result -- bn_only_ft at 0.22% of parameters
+    # tying full fine-tuning -- says the axis that pays under domain shift may be
+    # parameter *type* rather than layer depth. These four decompose that claim:
+    # BatchNorm's two halves separately, the convolutional complement, and the
+    # shortcut projections. Accuracy is reported against %params as a frontier rather
+    # than at matched budget, because convolution weights are 88% of the backbone and
+    # cannot be budget-matched to BatchNorm's 0.2%.
+    "bn_scale_ft": BaselineSpec(
+        "bn_scale_ft", "Adapt BatchNorm scale (weight) only, ~0.11%", _bn_scale_ft
+    ),
+    "bn_shift_ft": BaselineSpec(
+        "bn_shift_ft", "Adapt BatchNorm shift (bias) only, ~0.11%", _bn_shift_ft
+    ),
+    "conv_only_ft": BaselineSpec(
+        "conv_only_ft", "Adapt convolution weights only, no shortcuts, ~88%", _conv_only_ft
+    ),
+    "downsample_ft": BaselineSpec(
+        "downsample_ft", "Adapt shortcut projections only, ~11.8%", _downsample_ft
+    ),
 }

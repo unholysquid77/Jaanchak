@@ -93,6 +93,66 @@ def select_batchnorm(backbone: TappedBackbone) -> None:
                 module.bias.requires_grad_(True)
 
 
+def _bn_modules(backbone: TappedBackbone):
+    return (
+        m for m in backbone.adapted.modules()
+        if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)
+    )
+
+
+def select_bn_scale(backbone: TappedBackbone) -> None:
+    """Only BatchNorm *scale* (``weight``), not shift.
+
+    Splitting BatchNorm-only adaptation into its two halves asks a sharper question
+    than the combined baseline does. A per-channel scale is a diagonal rescaling of a
+    unit's activations; a per-channel shift is a translation. If adaptation is mostly a
+    mean shift, ``select_bn_shift`` should carry nearly all of ``select_batchnorm``'s
+    gain at half the parameters, and vice versa. Either answer says what the dominant
+    mode of few-shot representation change actually is -- the same quantity
+    ``experiments/diagnose_subspace.py`` measures directly in activation space.
+    """
+    backbone.adapted.requires_grad_(False)
+    for module in _bn_modules(backbone):
+        if module.weight is not None:
+            module.weight.requires_grad_(True)
+
+
+def select_bn_shift(backbone: TappedBackbone) -> None:
+    """Only BatchNorm *shift* (``bias``). Counterpart to :func:`select_bn_scale`."""
+    backbone.adapted.requires_grad_(False)
+    for module in _bn_modules(backbone):
+        if module.bias is not None:
+            module.bias.requires_grad_(True)
+
+
+def select_conv(backbone: TappedBackbone) -> None:
+    """Convolution weights only, excluding shortcut projections. ~88% of the backbone.
+
+    The complement of BatchNorm-only in the parameter-type partition. Reported not
+    because it is expected to win but because the accuracy-per-parameter frontier is
+    only interpretable with both ends of it measured.
+    """
+    backbone.adapted.requires_grad_(False)
+    for name, module in backbone.adapted.named_modules():
+        if isinstance(module, torch.nn.Conv2d) and "downsample" not in name:
+            module.weight.requires_grad_(True)
+
+
+def select_downsample(backbone: TappedBackbone) -> None:
+    """Shortcut projection blocks only (1x1 conv + its BatchNorm), ~11.8%.
+
+    These sit on the residual path at every stage transition, so they are the smallest
+    group that can rescale the identity branch rather than the residual branch -- a
+    structurally different kind of intervention from the other groups.
+    """
+    backbone.adapted.requires_grad_(False)
+    for name, module in backbone.adapted.named_modules():
+        if "downsample" not in name:
+            continue
+        if isinstance(module, (torch.nn.Conv2d, torch.nn.modules.batchnorm._BatchNorm)):
+            module.requires_grad_(True)
+
+
 class StaticController:
     """Fixed gate vector. Expresses every Level-0 baseline.
 

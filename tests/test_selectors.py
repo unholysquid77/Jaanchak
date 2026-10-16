@@ -15,6 +15,10 @@ from arc.train.baselines import BASELINES
 from arc.train.episodic import (
     select_all,
     select_batchnorm,
+    select_bn_scale,
+    select_bn_shift,
+    select_conv,
+    select_downsample,
     select_none,
     select_units,
 )
@@ -26,6 +30,16 @@ def _backbone() -> TappedBackbone:
 
 def _trainable(backbone: TappedBackbone) -> int:
     return sum(p.numel() for p in backbone.adapted.parameters() if p.requires_grad)
+
+
+def _selected_names(backbone: TappedBackbone) -> tuple[str, ...]:
+    """Which parameters a selector actually opened, by name.
+
+    The identity of an experiment is the set it selects, not how large that set is.
+    """
+    return tuple(sorted(
+        n for n, p in backbone.adapted.named_parameters() if p.requires_grad
+    ))
 
 
 def test_select_none_freezes_everything() -> None:
@@ -81,14 +95,20 @@ def test_every_baseline_is_a_distinct_experiment() -> None:
     """
     net = _backbone()
     steps = 10
-    footprints: dict[str, tuple[int, tuple]] = {}
+    footprints: dict[str, tuple[tuple, tuple]] = {}
     for key, spec in BASELINES.items():
         controller, select, spec_steps = spec.build(net, steps)
         select(net)
         trajectory = tuple(
             tuple(controller.step(i).tolist()) for i in range(max(spec_steps, 1))
         )
-        footprints[key] = (_trainable(net), trajectory)
+        # The footprint is the *set of parameter names*, not their count. A count does
+        # not identify a set: bn_scale_ft and bn_shift_ft select exactly as many
+        # parameters as each other (every BatchNorm weight vs every BatchNorm bias)
+        # while being different experiments, and a count-based footprint called them
+        # duplicates. Names are an exact identity, and would have caught the original
+        # BatchNorm-as-full-fine-tuning defect more directly than a count did.
+        footprints[key] = (_selected_names(net), trajectory)
 
     # frozen_proto takes zero steps, so its footprint is irrelevant; the rest must differ.
     stepping = {k: v for k, v in footprints.items() if k != "frozen_proto"}
@@ -100,3 +120,54 @@ def test_frozen_proto_takes_no_gradient_steps() -> None:
     _, _, steps = BASELINES["frozen_proto"].build(net, 20)
     assert steps == 0
     assert BASELINES["frozen_proto"].tunable is False
+
+
+# -- the parameter-type partition -------------------------------------------
+
+def test_bn_scale_and_bn_shift_partition_bn_only_exactly() -> None:
+    """The two halves must be disjoint and together reconstruct select_batchnorm.
+
+    This is the claim the ISIC result rests on -- that BatchNorm-only adaptation is a
+    per-channel affine, scale plus shift -- so the code had better implement exactly
+    that split and nothing else.
+    """
+    net = _backbone()
+    select_bn_scale(net)
+    scale = set(_selected_names(net))
+    select_bn_shift(net)
+    shift = set(_selected_names(net))
+    select_batchnorm(net)
+    both = set(_selected_names(net))
+
+    assert scale and shift
+    assert not (scale & shift), "scale and shift overlap"
+    assert scale | shift == both, "the halves do not reconstruct select_batchnorm"
+    assert all(n.endswith(".weight") for n in scale)
+    assert all(n.endswith(".bias") for n in shift)
+
+
+def test_conv_selection_excludes_shortcut_projections() -> None:
+    """select_conv and select_downsample must not overlap, or the parameter-type
+    frontier double-counts the 1x1 projections."""
+    net = _backbone()
+    select_conv(net)
+    conv = set(_selected_names(net))
+    select_downsample(net)
+    down = set(_selected_names(net))
+
+    assert conv and down
+    assert not (conv & down)
+    assert all("downsample" not in n for n in conv)
+    assert all("downsample" in n for n in down)
+
+
+def test_no_group_selector_touches_a_batchnorm_running_statistic() -> None:
+    """Running statistics are buffers, not parameters, and must never become
+    trainable -- that is landmine 3/4 in a new costume."""
+    net = _backbone()
+    for select in (select_bn_scale, select_bn_shift, select_conv, select_downsample):
+        select(net)
+        assert all(
+            "running_mean" not in n and "running_var" not in n
+            for n in _selected_names(net)
+        )
