@@ -24,6 +24,12 @@ set -uo pipefail
 
 PY=.venv/bin/python
 DATA="--dataset eurosat --fractions 0.2 0.1 0.7"
+# --no-amp for everything that EXTRACTS a correction. Measured on ISIC: two
+# extractions with identical seeds disagree by 1.99 accuracy points with AMP on and
+# 0.56 with it off, because GradScaler skips optimiser steps on inf/nan
+# nondeterministically and so changes how much adaptation each episode performed.
+# Extraction roughly doubles in wall-clock; an unreproducible basis is worse.
+NOAMP="--no-amp"
 SHOT=${SHOT:-5}
 
 stage() { printf '\n========== %s  (%s) ==========\n' "$1" "$(date +%H:%M)"; }
@@ -34,7 +40,7 @@ if [ ! -f results/subspace_eurosat/.done ]; then
     stage "displacement spectrum of full_ft on EuroSAT (200 episodes)"
     $PY experiments/diagnose_subspace.py $DATA \
         --k-shot "$SHOT" --episodes 200 --baseline full_ft \
-        --inner-lr 1e-5 --inner-steps 20 --out results/subspace_eurosat \
+        --inner-lr 1e-5 --inner-steps 20 $NOAMP --out results/subspace_eurosat \
         || fail "EuroSAT displacement probe failed"
     mkdir -p results/subspace_eurosat && touch results/subspace_eurosat/.done
 else
@@ -51,7 +57,7 @@ if [ ! -f results/frontier_eurosat/.done ]; then
     $PY experiments/subspace_frontier.py $DATA \
         --k-shot "$SHOT" --n-query 15 --eval-n-query 15 \
         --extract-episodes 100 --eval-episodes 200 \
-        --inner-lr 1e-5 --inner-steps 20 \
+        --inner-lr 1e-5 --inner-steps 20 $NOAMP \
         --ranks 1 2 4 8 16 --fit-lrs 0.01 0.05 0.2 \
         --out results/frontier_eurosat \
         || fail "EuroSAT frontier failed"

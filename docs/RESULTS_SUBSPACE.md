@@ -203,8 +203,45 @@ The useful part of the correction is the least stably estimated part.
 Everything shift-derived inherits this, rank-k included, since its coefficients
 warm-start from the same mean displacement.
 
-**Open:** whether extraction stabilises with AMP off or with more episodes, and the
-re-measured size of the zero-gradient-step effect once it does.
+### Resolved: AMP is most of it, and the precomputed correction is weak
+
+Rerunning the variance test with AMP off:
+
+```
+                      AMP on        AMP off
+spread between two    1.99 pts      0.56 pts
+identical extractions (38.23/40.21) (40.08/39.52)
+```
+
+So `GradScaler` skipping optimiser steps on inf/nan accounts for roughly 3.5x of the
+irreproducibility. The residual 0.56 is cuDNN nondeterminism and is tolerable.
+Extraction should therefore always run with `--no-amp`, at roughly double the
+wall-clock; `scripts/run_eurosat_probe.sh` does.
+
+**And this forces a second, larger retraction.** With extraction stabilised, the
+precomputed correction sits at **~39.8** against a frozen backbone's 38.04 and full
+fine-tuning's 49.6. That is **1.8 of the 11.5 available points, about 15% — not 65%.**
+A precomputed, zero-gradient-step correction is close to useless here. The 45.21 that
+produced the 65% figure was an outlier draw, and the two AMP-on draws (38.23, 40.21)
+and two AMP-off draws (40.08, 39.52) all agree with the lower value.
+
+This also reverses the "fitting hurts" reading from `results/precomputed_v2`. That
+comparison used the inflated 45.21 as its baseline. Against the correct ~39.8, every
+fitted variant *helps*: `fitted` 42.59, `rank4` 45.13, `ssf` 48.61. `subspace_frontier`
+was internally consistent the whole time (shift 38.55 < fitted 42.59); it was
+`precomputed_shift`'s draw that was the outlier.
+
+**What survives unaffected**, because none of it depends on the extracted basis:
+~90% of displacement is a per-channel affine; `ssf` (diagonal, fit per episode) beats
+every non-diagonal rank at 48.61 against 45.13; energy does not predict accuracy; and
+the Level-1 gating null and its diagnosis. The frontier's 3.5-point diagonal advantage
+is six times the residual extraction spread, so that conclusion is safe without a
+rerun.
+
+**The corrected story:** adaptation's displacement is overwhelmingly diagonal, it
+cannot be usefully precomputed, per-episode fitting is necessary, and within
+per-episode fitting the diagonal form beats a low-rank non-diagonal basis extracted
+from that displacement.
 
 **What these probes do *not* support:** that a cleverer basis beats the diagonal. §3's
 plateau says the ~49.5 ceiling is not the diagonal's fault, so "better basis" is
