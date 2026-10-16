@@ -4,8 +4,24 @@
 # not import arc.train.episodic at all. Same class of bug as the `--exclude data`
 # in scripts/sync.sh (docs/HANDOFF.md section 6, landmine 11). Keep the slashes.
 /data/
-/results/
 /logs/
+
+# results/ is TRACKED on purpose, despite being generated output.
+#
+# ARC_SPEC section 8 makes "results are append-only" and "figures regenerate from
+# results with one command" non-negotiable, and neither is enforceable if the results
+# only exist on one un-backed-up machine. They were ignored until 2026-10-16, which
+# meant every number in docs/ had exactly two copies: the compute box, which has no
+# git repo of its own and is tar-synced, and whichever ephemeral cloud container last
+# pulled them. Roughly 60 GPU-hours of measurements, one disk failure from gone.
+#
+# The whole tree is ~9 MB of JSON, which git compresses well, so there is no reason
+# to be selective. New runs SHOULD show up as uncommitted work -- that is the
+# append-only discipline being visible rather than assumed.
+#
+# Only genuinely reproducible-for-free artifacts stay out:
+results/**/.done*
+results/**/__pycache__/
 
 __pycache__/
 *.pyc

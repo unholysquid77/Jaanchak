@@ -468,6 +468,43 @@ or two between the two sweeps are not meaningful.
 
 ---
 
+## 6d. Probes: what adaptation actually does (VALID, val only; 2026-10-16)
+
+~3 GPU-hours via `scripts/run_probe.sh`. Headline numbers and interpretation in
+`docs/RESULTS_SUBSPACE.md`; recorded here as the run log. All ISIC 5-shot, val.
+
+```
+P0a  diagnose_subspace, full_ft,     200 eps   diagonal 0.903  eff.rank 12.84  acc 49.61
+P0b  diagnose_subspace, bn_only_ft,  200 eps   diagonal 0.946  eff.rank 10.20  acc 48.69
+E2   diagnose_unit_benefit,           30 eps   within-episode rho: U +0.039, D -0.038
+                                               drift depth rho +0.973 +/- 0.023
+                                               adapt none 38.22, adapt all 50.22
+                                               standalone benefits sum 74.5% vs 12.0%
+E1   sweep_lr, 4 parameter groups,    40 cfg   see the plateau table below
+```
+
+Parameter-type plateau, each at its own tuned LR on the 3e-6..1e-1 grid:
+
+```
+bn_scale_ft      48.79   0.113%   3e-2
+bn_shift_ft      48.32   0.113%   3e-2
+bn_only_ft       49.44   0.226%   3e-2   (from section 6c)
+downsample_ft    49.80  11.811%   1e-3
+conv_only_ft     49.64  87.996%   1e-4
+full_ft          49.55 100.000%   1e-4   (from section 6c)
+stage4_ft        46.52  63.658%   3e-4   (from section 6c)
+```
+
+**A failed prediction, recorded because it constrains the next step.** P0a shows shift
+carrying ~85% of the diagonal energy, so `bn_shift_ft` was predicted to clearly beat
+`bn_scale_ft`. It lost, 48.32 to 48.79. Energy share does not translate into accuracy
+share, so a basis chosen by displacement norm is choosing on the wrong objective.
+
+**Not run:** precomputed-shift adaptation (the decisive follow-up), any test-split
+number, 1-shot (uninformative on ISIC), E3 the hard/sparse gate.
+
+---
+
 ## 7. What has never been run
 
 - **ISIC test split** — val tuning complete (§6c); no test numbers, no 10/20-shot.

@@ -16,6 +16,7 @@ before touching anything.
 | [`docs/RESULTS_LEVEL0.md`](docs/RESULTS_LEVEL0.md) | tuned baseline table (complete) |
 | [`docs/RESULTS_LEVEL1.md`](docs/RESULTS_LEVEL1.md) | adaptive gate on EuroSAT (null result) |
 | [`docs/RESULTS_ISIC.md`](docs/RESULTS_ISIC.md) | ISIC: tuned baselines and the gate (null replicates) |
+| [`docs/RESULTS_SUBSPACE.md`](docs/RESULTS_SUBSPACE.md) | what adaptation actually does: four probes, and the pivot they imply |
 | [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md) | every run performed, including the void ones, with exact numbers |
 | [`docs/DATA_REQUEST.md`](docs/DATA_REQUEST.md) | what is needed from the forensic datasets |
 

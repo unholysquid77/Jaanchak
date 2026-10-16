@@ -1,10 +1,20 @@
 # ARC — Handoff
 
-**Last updated:** 2026-10-16
+**Last updated:** 2026-10-16 (probes)
 **State:** Level 0 complete and reportable on EuroSAT. Level 1 built and tuned, and
 now producing a null result on **two** datasets — the signals are actively harmful on
 the harder one. ISIC tuning complete (`docs/RESULTS_ISIC.md`); ISIC test reporting not
 run. Level 2 not started.
+
+Four probes (`docs/RESULTS_SUBSPACE.md`) now explain *why* Level 1 is null and point
+at a different paper: adaptation is ~90% a per-channel affine, near rank-1 at the top
+across 200 tasks, units are redundant, every parameter group plateaus at ~49.5, and
+neither signal predicts within-episode which unit to adapt. The open question is
+whether the correction can be precomputed offline and applied with no test-time
+gradient steps.
+
+`results/` is now tracked in git. It was ignored until 2026-10-16, which left ~60
+GPU-hours of measurements with no durable copy.
 
 > **§6 landmine 16:** `src/arc/data/` was absent from every commit until 2026-10-15 (a
 > `.gitignore` pattern ate it). The original has since been recovered from the compute
@@ -59,7 +69,7 @@ Everything in section 4 that is marked *CPU* works fine in a cloud session today
 |---|---|---|
 | 0 | Six tuned baselines, EuroSAT, 1/5/10/20-shot | **Done.** `docs/RESULTS_LEVEL0.md` |
 | 0 | Five tuned baselines, ISIC, 1/5-shot | **Tuned on val; test not run.** `docs/RESULTS_ISIC.md` |
-| 1 | Drift + utility signals, adaptive gate | **Built, tuned, null on EuroSAT *and* ISIC.** See §5 |
+| 1 | Drift + utility signals, adaptive gate | **Built, tuned, null on EuroSAT *and* ISIC — and now diagnosed.** §5, `docs/RESULTS_SUBSPACE.md` |
 | 2 | Topology, stability, novelty; learned gate; ablations | Not started |
 | 3 | FBSDE controller | Not started (explicit stretch goal) |
 
