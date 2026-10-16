@@ -154,13 +154,57 @@ than task-specific representation learning. That one claim accounts for all thre
 nulls: the `bn_only_ft` tie, the irrelevance of layer selection, and the uselessness of
 a task-conditional controller.
 
-**Not established, and the next thing to test:** whether the correction can be computed
-**once, offline, from the train split** and applied with **zero test-time gradient
-steps**. If a fixed affine extracted from train episodes reaches ~49 on val, the
-synthesis is demonstrated and the result is positive and useful. If it does not, the
-correction is more task-dependent than the rank-1 spectrum suggests, and §3's failed
-prediction is the first hint of why. `results/` now carries everything needed to check
-either way.
+## 5. Tested since, and a correction to §4 (2026-10-16, later)
+
+**The precomputed correction works partially, and the diagonal beats a non-diagonal
+basis.** `results/precomputed`, `results/precomputed_v2`, `results/frontier`:
+
+```
+variant   trainable   accuracy     gain
+identity          0     38.04     +0.01
+fitted           17     42.59     +4.55
+rank1            17     42.67     +4.63
+rank4            68     45.13     +7.09   <- non-diagonal peak
+rank16          272     44.79     +6.75
+ssf           30336     48.61    +10.57   <- diagonal
+```
+
+A non-diagonal activation basis from displacement SVD does not beat per-channel
+scale-and-shift, and extra rank does not help — it peaks at rank 4 and declines. That
+answers the matched-budget question a literature review names as the field's most
+direct missing ablation, and the saturation is what §3's mechanism predicts: the basis
+is energy-ordered, `layer4_2` holds 81.7% of its displacement energy in one direction,
+and `layer4` is the region measured as useless to harmful. Rank-k spends its first
+components on the least useful direction available.
+
+**⚠ §4's headline claim is overstated and must not be repeated as written.** An earlier
+run put the precomputed `shift` at 45.21, i.e. "65% of adaptation with zero gradient
+steps". That number is a favourable draw. **Extraction is not reproducible**:
+`experiments/diagnose_extraction_variance.py` extracts twice in one process — same
+seeds, same episodes, same weights — and gets
+
+```
+cosine between draws   0.948 (stem) .. 0.999 (layer4_2)
+relative difference    0.32  (stem) .. 0.04  (layer4_2)
+resulting accuracy     38.23  vs  40.21        spread 1.99 points
+```
+
+Both draws sit nearer 38.5 than 45.2, so the correction recovers materially less than
+65%, and the true figure needs a mean over extraction seeds with an error bar. The
+prime suspect is AMP's `GradScaler` skipping optimiser steps on inf/nan
+nondeterministically, which changes how much adaptation each episode actually performed;
+`EpisodeRunner` already counts `skipped_steps` for that reason.
+
+Worse, the variance is largest exactly where the signal is. Relative difference falls
+monotonically with depth because early-layer displacements are small in absolute norm
+(0.11 against 10.3), so noise dominates — but the gain lives in layer2–3, not layer4.
+The useful part of the correction is the least stably estimated part.
+
+Everything shift-derived inherits this, rank-k included, since its coefficients
+warm-start from the same mean displacement.
+
+**Open:** whether extraction stabilises with AMP off or with more episodes, and the
+re-measured size of the zero-gradient-step effect once it does.
 
 **What these probes do *not* support:** that a cleverer basis beats the diagonal. §3's
 plateau says the ~49.5 ceiling is not the diagonal's fault, so "better basis" is
