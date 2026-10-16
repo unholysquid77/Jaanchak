@@ -121,10 +121,13 @@ def apply_correction(
         h = backbone.frozen[name](h)
         g = None if gamma is None else gamma.get(name)
         b = None if beta is None else beta.get(name)
+        # device as well as dtype: the corrections are accumulated on CPU during
+        # extraction (float64, to keep the statistics honest) while activations live
+        # on the GPU. Casting only the dtype leaves them on the wrong device.
         if g is not None:
-            h = h * g.to(h.dtype).view(1, -1, *([1] * (h.ndim - 2)))
+            h = h * g.to(device=h.device, dtype=h.dtype).view(1, -1, *([1] * (h.ndim - 2)))
         if b is not None:
-            h = h + b.to(h.dtype).view(1, -1, *([1] * (h.ndim - 2)))
+            h = h + b.to(device=h.device, dtype=h.dtype).view(1, -1, *([1] * (h.ndim - 2)))
     return torch.flatten(backbone.pool(h), 1)
 
 
