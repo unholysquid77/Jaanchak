@@ -126,4 +126,65 @@ run_ln_hi() {
 # half an hour of GPU confirming a decline that 1e-1 has already shown.
 run_ln_hi isic "--dataset isic --fractions 0.1 0.4 0.5"
 
-stage "ViT stage 1 complete -- read the grid-edge warnings before launching stage 2"
+stage "ViT stage 1 complete"
+
+# == STAGE 2a: per-group learning rates ========================================
+#
+# Stage 1 settled four learning rates, all interior peaks:
+#
+#              full_ft   ln_only_ft
+#   ISIC       1e-4      1e-1   (bracketed: 44.91 at 1e-2, 49.36 at 1e-1, 29.97 at 3e-1)
+#   EuroSAT    1e-5      1e-2   (bracketed: 79.79 at 1e-3, 84.32 at 1e-2, 71.89 at 1e-1)
+#
+# A factor of exactly 1000 between full_ft and the LayerNorm group, on both
+# datasets. THAT is why every group gets its own grid here rather than inheriting
+# full_ft's: a parameter-type table built at one shared learning rate is not a
+# comparison of parameter types, it is a comparison of how well each group happens
+# to suit one arbitrary step size. docs/RESULTS_VIT.md 1.1 states this and stage 2
+# has to stay true to it.
+#
+# Grids are centred on the regime each group is expected to inhabit, and each is
+# wide enough to bracket a peak rather than just find an edge:
+#
+#   ln_scale, ln_shift  -- halves of ln_only, so its regime, centred on its peak.
+#   attn, mlp           -- large weight matrices like conv, so full_ft's regime.
+#   patch_embed         -- the only convolution in a ViT and ~0.7% of parameters,
+#                          between the two regimes with no prior to lean on, so it
+#                          gets a deliberately wide 5-point grid.
+#
+# 50 episodes: this is still tuning. Stage 2b re-measures the winners at 100.
+# ~5.5 GPU-hours. Sentinel per (dataset, family).
+
+run_group_lr() {
+    local tag="$1"
+    local data="$2"
+    local fam="$3"
+    local bases="$4"
+    local lrs="$5"
+    local out="results/vit_g_${tag}_${fam}"
+    if [ -f "$out/.done" ]; then
+        echo "[skip] $tag/$fam group sweep already done"
+        return
+    fi
+    stage "$tag $fam: $bases over $lrs"
+    # shellcheck disable=SC2086
+    $PY experiments/sweep_lr.py $data --arch "$ARCH" \
+        --k-shot "$SHOT" --episodes "$EPISODES" \
+        --baselines $bases --lrs $lrs \
+        --inner-steps 20 $NOAMP --out "$out" \
+        || fail "$tag $fam group sweep failed"
+    mkdir -p "$out" && touch "$out/.done"
+}
+
+ISIC_DATA="--dataset isic --fractions 0.1 0.4 0.5"
+EURO_DATA="--dataset eurosat --fractions 0.2 0.1 0.7"
+
+run_group_lr isic "$ISIC_DATA" lnhalves "ln_scale_ft ln_shift_ft" "1e-2 3e-2 1e-1 3e-1"
+run_group_lr isic "$ISIC_DATA" weights   "attn_only_ft mlp_only_ft" "1e-5 3e-5 1e-4 3e-4"
+run_group_lr isic "$ISIC_DATA" patch     "patch_embed_ft"           "1e-5 1e-4 1e-3 1e-2 1e-1"
+
+run_group_lr eurosat "$EURO_DATA" lnhalves "ln_scale_ft ln_shift_ft" "1e-3 3e-3 1e-2 3e-2"
+run_group_lr eurosat "$EURO_DATA" weights   "attn_only_ft mlp_only_ft" "3e-6 1e-5 3e-5 1e-4"
+run_group_lr eurosat "$EURO_DATA" patch     "patch_embed_ft"           "1e-6 1e-5 1e-4 1e-3 1e-2"
+
+stage "ViT stage 2a complete -- check every group for a grid-edge peak before stage 2b"

@@ -104,25 +104,47 @@ The step-size spread also replicates and is now confirmed on two datasets:
 `ln_only_ft` wants `1e-2` where `full_ft` wants `1e-5`, a factor of **1000**,
 matching the ≥1000x seen on ISIC. On ResNet the same comparison was 300x.
 
-### 1.4 ISIC is the open case
+### 1.4 ISIC — settled too, and it does NOT tie
 
-EuroSAT settled with a tie. ISIC did not settle at all: `ln_only_ft` was still
-rising at `1e-1` (49.36) against `full_ft`'s 53.07, so on ISIC the gap is currently
-3.7 points *in favour of full fine-tuning* and the LayerNorm side is not converged.
-Stage 1b sweeps `3e-1, 1, 3, 10` on ISIC only.
+Stage 1b extended `ln_only_ft` upward on ISIC. `1e-1` turns out to be the real
+peak, now bracketed on both sides:
 
-Two outcomes and they mean different things:
+| lr | 1e-3 | 1e-2 | **1e-1** | 3e-1 | 1e0 | 3e0 | 1e1 |
+|---|---|---|---|---|---|---|---|
+| `ln_only_ft` | 42.03 | 44.91 | **49.36 ± 2.58** | 29.97 | 28.45 | 26.51 | 23.12 |
 
-* If ISIC's `ln_only_ft` climbs to ~53 and ties, the plateau holds on both datasets
-  and both architectures, and the claim becomes genuinely architecture-independent.
-* If it peaks below `full_ft`, the plateau holds under mild shift (EuroSAT, 3-point
-  headroom) but **breaks under strong shift** (ISIC, ~14-point headroom on ViT).
-  That would be a more interesting result than the tie, and it would rhyme with
-  §6.2 of `RESULTS_SUBSPACE.md`, where capacity mattered on ISIC and was dead
-  weight on EuroSAT.
+The collapse above the peak is abrupt — 49.36 to 29.97 across a factor of 3 — so
+the optimum is sharp rather than a plateau in lr. Both ISIC learning rates are now
+interior and settled: `full_ft` `1e-4`, `ln_only_ft` `1e-1`. **Exactly 1000x apart,
+and exactly 1000x apart on EuroSAT too** (`1e-5` / `1e-2`). Two datasets agreeing
+on that ratio to one significant figure is more than I expected from a 6-point
+logarithmic grid.
 
-Either way it is one dataset at 50 episodes and gets re-measured in stage 2.
+**The headline comparison, both datasets, both groups at their own tuned lr:**
 
+| | `full_ft` (100%) | `ln_only_ft` (0.06%) | gap |
+|---|---|---|---|
+| EuroSAT | 84.29 ± 1.69 | 84.32 ± 1.69 | **−0.03** |
+| ISIC | 53.07 ± 2.38 | 49.36 ± 2.58 | **+3.71** |
+
+EuroSAT is a clean tie. **ISIC is not.** The 3.71-point gap against a combined 95%
+interval of ±3.51 (√(2.38² + 2.58²)) excludes zero — but *barely*, by 0.2 points,
+at 50 episodes. So this is the second of the two outcomes §1.4 previously laid out,
+and it is suggestive rather than established:
+
+> the plateau holds under mild shift (EuroSAT, ~3-point headroom) but weakens or
+> breaks under strong shift (ISIC, ~14-point headroom on ViT).
+
+That rhymes with §6.2 of `RESULTS_SUBSPACE.md`, where on ResNet the extra capacity
+bought 3.5 points on ISIC and nothing at all on EuroSAT. Two independent
+experiments — a basis-rank frontier and a parameter-type comparison, different
+architectures — pointing at the same shift-magnitude interaction is the most
+interesting thing in this project so far.
+
+It is also exactly the kind of margin that has burned this project three times, and
+0.2 points past a confidence interval is not a finding. Stage 2b re-measures at 100
+episodes, which halves the interval if the accuracies hold, and that is what
+decides it.
 ---
 
 ## 2. What is NOT claimed yet
