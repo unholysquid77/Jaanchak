@@ -1,4 +1,9 @@
-# What adaptation actually does — four probes on ISIC
+# What adaptation actually does — probes on ISIC, then EuroSAT
+
+> Read order note: sections 1-4 are the original ISIC probes and are **superseded
+> in places**. Section 5 retracts the precomputed-correction magnitude. Section 6
+> adds EuroSAT and retracts how sections 1 and 3 were worded: the diagonal basis
+> does not win in general, it wins when the shift is large.
 
 **Validation split only. No test numbers here.** ~3 GPU-hours, 2026-10-16.
 Raw output: `results/subspace/`, `results/unit_benefit/`, `results/isic_groups/`.
@@ -247,3 +252,96 @@ from that displacement.
 plateau says the ~49.5 ceiling is not the diagonal's fault, so "better basis" is
 probably not where the win is. The win, if there is one, is in removing test-time
 optimisation, not in raising the ceiling.
+
+## 6. The EuroSAT arm: the structure replicates, the *ranking* does not
+
+Everything above rests on ISIC. EuroSAT is the useful contrast, not a second
+confirmation: a frozen ResNet-50 already reaches 83.85% there at 5-shot against
+full_ft's 86.83%, so the headroom is **2.98 points** versus ISIC's 11.5. If the
+findings are about few-shot adaptation they should survive; if they are about
+medical imaging, or about large shifts, they should not.
+
+Same protocol, EuroSAT's own 0.2/0.1/0.7 split and full_ft's own tuned
+`--inner-lr 1e-5` (deliberately not ISIC's 1e-4), 200 eval episodes, `--no-amp`
+throughout. Val split only.
+
+### 6.1 What replicated
+
+**Displacement is still mostly diagonal, and still gets less so with depth.**
+Mean diagonal fraction 0.824 (ISIC ~0.90), mean effective rank 8.55. The depth
+profile is the same shape: layer1–2 sit at 0.89–0.91 diagonal, layer3 decays
+0.885 → 0.766, layer4 bottoms out at 0.68–0.72. The stem is the outlier at
+0.643, as on ISIC. So "adaptation is approximately a per-channel affine" is a
+property of few-shot adaptation, not of skin lesions.
+
+**The parameter-type plateau replicated, harder.** Each group at its own tuned
+learning rate:
+
+| group | % of backbone params | val acc |
+|---|---|---|
+| `bn_shift_ft` | 0.113% | 86.44 |
+| `bn_scale_ft` | 0.113% | 86.72 |
+| `downsample_ft` | 11.8% | 87.01 |
+| `conv_only_ft` | 88.0% | 87.19 |
+
+A 0.75-point band across a **778×** range of trainable parameters, with CIs of
+±0.9. `conv_only_ft` at its own tuned lr even edges past full_ft's 86.83. On
+ISIC every group plateaued near 49.5; here near 86.8. Two datasets, two shift
+magnitudes, same answer: *which* parameters you adapt is very nearly irrelevant,
+and the plateau is the ceiling.
+
+### 6.2 What did not replicate — and this one matters
+
+On ISIC, `ssf` (30,336 params) beat the energy-ordered non-diagonal basis by 3.5
+points at every rank — six times the residual extraction spread, so it was safe.
+On EuroSAT that ordering **inverts**, and more importantly the whole spread
+collapses:
+
+| variant | trainable | val acc | share of the 2.98-pt headroom |
+|---|---|---|---|
+| `identity` (frozen) | 0 | 83.85 ± 0.91 | 0% |
+| `shift` (precomputed, 0 steps) | 0 | 84.95 ± 0.96 | **37%** |
+| `fitted` | 17 | 85.76 ± 0.90 | 64% |
+| `rank1` | 17 | 86.10 ± 0.91 | 76% |
+| `rank2` | 34 | 86.01 ± 0.90 | 72% |
+| `rank4` | 68 | 86.15 ± 0.88 | 77% |
+| `rank8` | 136 | 86.14 ± 0.88 | 77% |
+| `rank16` | 272 | 86.35 ± 0.87 | 84% |
+| `ssf` | 30,336 | 85.59 ± 0.87 | 58% |
+| `full_ft` | 23.5M | 86.83 | 100% |
+
+Read honestly: `ssf` is 0.76 points *below* `rank16`, which is inside both CIs,
+so the claim is **not** "non-diagonal wins on EuroSAT". The claim is that under
+a mild shift **nothing wins** — every parameterisation from 17 to 30,336
+parameters lands in an 85.6–86.4 band narrower than its own confidence
+interval, and `ssf`'s 1784× larger budget buys literally nothing over
+`rank1`'s seventeen scalars. On ISIC that same budget bought 3.5 points.
+
+So the ISIC result was never "the diagonal basis is the right basis". It was
+"when the shift is large enough that 11.5 points are on the table, you need the
+capacity, and the diagonal directions are where that capacity pays". Under a
+3-point shift the capacity is dead weight. That is a budget × shift-magnitude
+interaction, and it is a better claim than the single-dataset one it replaces —
+but it is also a retraction of how §1 and §3 were worded.
+
+There is a mechanism available, not yet a tested one: EuroSAT's displacement is
+82.4% diagonal and ISIC's is ~90%, and the basis that wins is the one aligned
+with the larger share. One extra dataset would make that a hypothesis with a
+prediction rather than a post-hoc pairing; ChestX (a harder shift than ISIC)
+should push diagonal share *up* and widen `ssf`'s margin, CropDisease (milder)
+should do the opposite. Not run.
+
+### 6.3 One earlier reading that held up
+
+§5 retracted the precomputed correction down to ~15% of ISIC's headroom and I
+guessed it would do proportionally *better* where the shift is mild. It does:
+**37% of EuroSAT's headroom with zero gradient steps**, against 15% on ISIC.
+Same estimator, same code, 2.5× the share. A precomputed per-channel affine
+handles mild covariate shift and fails on genuine domain shift — which is a
+cleaner statement of what it is than "recovers most of adaptation for free"
+ever was.
+
+### 6.4 Status
+
+Raw: `results/subspace_eurosat/`, `results/frontier_eurosat/`,
+`results/eurosat_groups/`, log in `logs/eurosat_probe.log`. ~5 GPU-hours.
