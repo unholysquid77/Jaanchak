@@ -466,3 +466,48 @@ found units highly redundant, and the ISIC numbers above show it — `benefit_lo
 is near zero for every unit while `benefit_only` is not. If EuroSAT repeats that,
 only the `only` intervention will carry signal, and a correlation computed on
 `loo` will be uninterpretable regardless of which way it points.
+
+### 8.3 Result: null, and mostly for lack of power
+
+EuroSAT per-unit benefit, 30 episodes, val split, `--inner-lr 1e-5`, `--no-amp`.
+Mean per-unit benefit against that unit's diagonal share, depth index and
+displacement norm:
+
+```
+confound check    diag vs depth           -0.637
+                  diag vs norm            -0.574
+hypothesis        diag vs benefit_only    -0.093
+                  norm vs benefit_only    +0.029
+                  depth vs benefit_only   +0.081
+                  diag vs benefit_loo     -0.222
+```
+
+**Nothing predicts benefit.** Not diagonal share, not norm, not depth. The
+mechanism §6 proposes is not supported, and the alternatives are not either.
+
+Two reasons not to read this as evidence *against* the mechanism:
+
+1. **The confound is only partly broken.** diag-vs-depth came out −0.637 and
+   diag-vs-norm −0.574. Better than ISIC's near-collinearity, but far from
+   independent, so even a clear positive would have been weak.
+2. **The experiment has almost no power.** Total adaptation on EuroSAT val moves
+   accuracy 85.11 → 87.38, i.e. 2.27 points. Mean single-unit `benefit_only` is
+   +0.37 points and the largest is +1.38 (layer4_0). At 30 episodes those sit
+   inside episode-to-episode noise. A null over seventeen sub-noise quantities is
+   what you would expect whether or not the effect is real.
+
+As pre-registered in §8.2, `benefit_loo` came back near zero (mean −0.25 points,
+max magnitude 0.76) — units are redundant on EuroSAT exactly as §2 found on ISIC,
+so the −0.222 `loo` correlation is uninterpretable and is not evidence of
+anything. That redundancy replication is the one positive finding here, and it is
+a real one: it is the second dataset on which removing any single unit from an
+otherwise fully-adapted backbone costs nothing.
+
+**Verdict on §6's mechanism: untestable on available data.** ISIC cannot separate
+diagonal share from depth, EuroSAT separates it only partly and has too little
+headroom to resolve per-unit effects, and ChestX (§8) is not obtainable. The
+honest position is that the ISIC/EuroSAT basis inversion in §6.2 is a real
+observation with no established mechanism, and it should be written that way
+rather than dressed in a story the data cannot carry. Not pursued further.
+
+Raw: `results/unit_benefit_eurosat/`, log `logs/unit_benefit_eurosat.log`.
