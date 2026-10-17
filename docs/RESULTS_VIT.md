@@ -75,13 +75,53 @@ wrong thing.
 roughly at the edge of the confidence interval and from 50 episodes, so treat it as
 suggestive rather than measured until stage 2 re-runs it at 100.
 
-### 1.3 EuroSAT
+### 1.3 EuroSAT — settled, and the plateau replicates
 
-In progress at time of writing; `full_ft` peaks at `1e-5` (84.29 ± 1.69), an
-interior peak, with `1e-6` at 78.69 and `1e-4` at 81.15. `ln_only_ft` is flat and
-mildly *decreasing* across `1e-6`–`1e-4` (79.89 / 79.81 / 79.68), consistent with
-ISIC's finding that LayerNorm does nothing at small step sizes. The three
-high-lr configs are what matter and are not in yet.
+| lr | `full_ft` | `ln_only_ft` |
+|---|---|---|
+| 1e-6 | 78.69 ± 1.91 | 79.89 ± 1.93 |
+| **1e-5** | **84.29 ± 1.69** | 79.81 ± 1.93 |
+| 1e-4 | 81.15 ± 1.92 | 79.68 ± 1.90 |
+| 1e-3 | 49.25 ± 2.89 | 79.79 ± 1.80 |
+| **1e-2** | 40.13 ± 1.91 | **84.32 ± 1.69** |
+| 1e-1 | 39.47 ± 2.01 | 71.89 ± 2.90 |
+
+Both are **clean interior peaks** and both are settled: `full_ft` at `1e-5`,
+`ln_only_ft` at `1e-2` with `1e-1` collapsing to 71.89. No grid-edge warning.
+
+**`ln_only_ft` ties `full_ft`: 84.32 against 84.29.** A 0.03-point difference, far
+inside either confidence interval, with **0.06% of the parameters** against 100%.
+This is the ResNet plateau reproducing on a transformer — and reproducing on the
+dataset where the ResNet arm found it hardest (EuroSAT's parameter-type band was
+0.75 points across a 778x range).
+
+So the plateau is not an artefact of BatchNorm, and specifically not of transductive
+BatchNorm statistics: LayerNorm has no running statistics, so the `bn_mode`
+confound that every ResNet number carries cannot explain this. That was the main
+methodological reason to build this arm and it has paid off.
+
+The step-size spread also replicates and is now confirmed on two datasets:
+`ln_only_ft` wants `1e-2` where `full_ft` wants `1e-5`, a factor of **1000**,
+matching the ≥1000x seen on ISIC. On ResNet the same comparison was 300x.
+
+### 1.4 ISIC is the open case
+
+EuroSAT settled with a tie. ISIC did not settle at all: `ln_only_ft` was still
+rising at `1e-1` (49.36) against `full_ft`'s 53.07, so on ISIC the gap is currently
+3.7 points *in favour of full fine-tuning* and the LayerNorm side is not converged.
+Stage 1b sweeps `3e-1, 1, 3, 10` on ISIC only.
+
+Two outcomes and they mean different things:
+
+* If ISIC's `ln_only_ft` climbs to ~53 and ties, the plateau holds on both datasets
+  and both architectures, and the claim becomes genuinely architecture-independent.
+* If it peaks below `full_ft`, the plateau holds under mild shift (EuroSAT, 3-point
+  headroom) but **breaks under strong shift** (ISIC, ~14-point headroom on ViT).
+  That would be a more interesting result than the tie, and it would rhyme with
+  §6.2 of `RESULTS_SUBSPACE.md`, where capacity mattered on ISIC and was dead
+  weight on EuroSAT.
+
+Either way it is one dataset at 50 episodes and gets re-measured in stage 2.
 
 ---
 
@@ -89,12 +129,13 @@ high-lr configs are what matter and are not in yet.
 
 Explicitly, so none of this gets quoted as a result:
 
-* **No parameter-type plateau claim.** The headline ResNet finding is that every
-  group ties within 0.75 points. On ISIC, `ln_only_ft` at its (unconverged) best
-  sits 3.7 points below `full_ft`, which would be a *departure* from the plateau —
-  but the grid is not settled, 50 episodes is a tuning budget, and the two
-  confidence intervals (±2.38, ±2.58) overlap at that margin. This is not evidence
-  of anything yet, in either direction.
+* **The plateau is confirmed on EuroSAT only, and only for one group.**
+  `ln_only_ft` ties `full_ft` there (84.32 / 84.29), which is real and is an
+  interior peak on both sides. But that is one of six groups in the partition at a
+  tuning episode count; `ln_scale`, `ln_shift`, `attn`, `mlp` and `patch_embed` are
+  not run, so "every group plateaus" is not established on ViT. On ISIC nothing is
+  established: `ln_only_ft` is unconverged and currently 3.7 points behind, with
+  overlapping intervals (±2.38, ±2.58).
 * **No attention-vs-MLP result.** Not run.
 * **No displacement or frontier numbers.** Not run. When they are, the code's
   notion of a "diagonal" correction has to be checked against LayerNorm affine

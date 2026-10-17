@@ -121,7 +121,9 @@ run_ln_hi() {
     mkdir -p "$out" && touch "$out/.done"
 }
 
-run_ln_hi isic    "--dataset isic --fractions 0.1 0.4 0.5"
-run_ln_hi eurosat "--dataset eurosat --fractions 0.2 0.1 0.7"
+# ISIC only. EuroSAT's ln_only_ft is already settled with a clean interior peak at
+# 1e-2 (84.32) and 1e-1 collapsing to 71.89, so sweeping 3e-1..1e1 there would spend
+# half an hour of GPU confirming a decline that 1e-1 has already shown.
+run_ln_hi isic "--dataset isic --fractions 0.1 0.4 0.5"
 
 stage "ViT stage 1 complete -- read the grid-edge warnings before launching stage 2"
