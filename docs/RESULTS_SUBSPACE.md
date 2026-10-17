@@ -3,7 +3,11 @@
 > Read order note: sections 1-4 are the original ISIC probes and are **superseded
 > in places**. Section 5 retracts the precomputed-correction magnitude. Section 6
 > adds EuroSAT and retracts how sections 1 and 3 were worded: the diagonal basis
-> does not win in general, it wins when the shift is large.
+> does not win in general, it wins when the shift is large. Section 7 supersedes
+> section 5's headline: over three extraction draws the precomputed correction
+> recovers 48% of ISIC's headroom once layer4 is excluded, not the 15% section 5
+> reports for the all-unit version, and the estimator noise floor is +/-1.1 points
+> rather than 0.56.
 
 **Validation split only. No test numbers here.** ~3 GPU-hours, 2026-10-16.
 Raw output: `results/subspace/`, `results/unit_benefit/`, `results/isic_groups/`.
@@ -345,3 +349,68 @@ ever was.
 
 Raw: `results/subspace_eurosat/`, `results/frontier_eurosat/`,
 `results/eurosat_groups/`, log in `logs/eurosat_probe.log`. ~5 GPU-hours.
+
+## 7. Three extraction draws, and layer4 was the problem all along
+
+§5 above retracts a claim built on one favourable extraction draw, then states its
+replacement (~39.8, "about 15%") from one draw too. Same mistake, smaller number.
+So: three extraction draws, `--extract-seed 0/1/2`, `--seed 0` held fixed so all
+three are scored on **identical** evaluation episodes, `--no-amp`. The `identity`
+control reproduced frozen_proto to 38.04 with delta 0.00 on every draw, so the
+harness is sound and what follows is estimator variance, not a bug.
+
+| unit subset | draw 0 | draw 1 | draw 2 | mean | sd | share of 11.56-pt headroom |
+|---|---|---|---|---|---|---|
+| `all` | 40.09 | 38.37 | 40.37 | 39.61 | 1.08 | 14% |
+| `layer4` only | 39.26 | 39.23 | 39.39 | 39.29 | 0.09 | 11% |
+| **`no_layer4`** | **44.77** | **42.47** | **43.36** | **43.53** | 1.16 | **48%** |
+| `stem_layer1` | 38.98 | 38.86 | 38.65 | 38.83 | 0.17 | 7% |
+
+### 7.1 The 15% figure survives, and is the wrong number to quote
+
+`all` comes out at 39.61 ± 1.08 — 14%, so §5's "about 15%" was right. But the
+spread between draws is **2.00 points**, not the 0.56 that §5 calls the AMP-off
+floor and "tolerable". That 0.56 came from two draws; three give 2.00. The floor
+measurement was itself underpowered, which is the same failure one level down.
+Taken alone, `all` at 39.61 ± 1.08 against frozen's 38.04 ± 0.97 is a gain whose
+confidence interval nearly touches zero.
+
+### 7.2 But excluding layer4 nearly triples it
+
+`no_layer4` beats `all` on every draw, and the orderings do not overlap at all:
+the *worst* `no_layer4` draw (42.47) is above the *best* `all` draw (40.37). Mean
+43.53 against frozen 38.04 is **5.49 points, 48% of the headroom** — not 15%.
+
+Dropping 17 of 23.5M parameters' worth of correction — three residual units —
+more than triples what the correction recovers. This is §1's "layer4 is
+useless-to-harmful" finding reappearing in a completely different experiment, and
+it says the precomputed correction was never as weak as §5 claims; it was being
+dragged down by the three units holding 81.7% of the displacement energy. Energy
+does not predict accuracy, again, and this time it costs 34 points of headroom
+share to ignore.
+
+So the honest statement is: **a precomputed zero-gradient-step correction over
+stem–layer3 recovers about half of what full fine-tuning achieves on ISIC, and
+including layer4 destroys two thirds of that.** The twice-retracted number was
+wrong in the *other* direction the second time.
+
+### 7.3 Where the variance lives, which is the real caution
+
+The per-subset standard deviations are the most useful thing here:
+
+- `layer4` sd **0.09**, `stem_layer1` sd **0.17** — essentially reproducible.
+- `all` sd **1.08**, `no_layer4` sd **1.16** — not.
+
+Both unstable subsets contain layer2–3 and both stable ones exclude it. So the
+irreproducibility is localised to layer2–3, and layer2–3 is exactly where the gain
+is. That is the same conclusion §5 reached from per-unit relative differences,
+arrived at independently from accuracy alone. It means every shift-derived result
+in this document carries roughly ±1.1 points of estimator noise on the parts that
+matter, and the 0.56 "tolerable residual" in §5 should be read as ±1.1 instead.
+
+Anything resting on a margin under ~2.3 points (two sd) between shift-derived
+variants needs more draws before it is a finding. The frontier's 3.5-point
+diagonal advantage on ISIC clears that. EuroSAT's 0.76-point `ssf`/`rank16` gap in
+§6 does not, which is a second reason that section claims no winner there.
+
+Raw: `results/precomputed_seed{0,1,2}/`, log `logs/seed_spread.log`. ~2 GPU-hours.
