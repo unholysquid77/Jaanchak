@@ -88,4 +88,40 @@ run_sweep() {
 run_sweep isic    "--dataset isic --fractions 0.1 0.4 0.5"
 run_sweep eurosat "--dataset eurosat --fractions 0.2 0.1 0.7"
 
+# -- stage 1b: extend the LayerNorm grid upward --------------------------------
+#
+# Stage 1 on ISIC put ln_only_ft at 1e-1, the top of the grid, still rising
+# monotonically: 39.28 / 39.15 / 39.55 / 42.03 / 44.91 / 49.36 across 1e-6..1e-1.
+# "best = 1e-1" there means "largest tried", not "optimum", and sweep_lr.py says so
+# in a warning. full_ft by contrast has a clean interior peak at 1e-4 and is done.
+#
+# So this sweeps ONLY ln_only_ft, and only upward. Values above 1 are not a typo: a
+# LayerNorm affine group is ~0.06% of the backbone, so each parameter has to travel
+# much further to change the function by as much, and the ResNet arm already saw the
+# normalisation group want 300x full_ft's step size. If this also peaks at its own
+# top end, extend again rather than accepting the edge -- that is the whole point of
+# the warning.
+LN_LRS_HI="3e-1 1e0 3e0 1e1"
+
+run_ln_hi() {
+    local tag="$1"
+    local data="$2"
+    local out="results/vit_lr_${tag}_lnhi"
+    if [ -f "$out/.done" ]; then
+        echo "[skip] $tag high-lr LayerNorm sweep already done"
+        return
+    fi
+    stage "$tag LayerNorm high learning rates: $LN_LRS_HI"
+    # shellcheck disable=SC2086
+    $PY experiments/sweep_lr.py $data --arch "$ARCH" \
+        --k-shot "$SHOT" --episodes "$EPISODES" \
+        --baselines ln_only_ft --lrs $LN_LRS_HI \
+        --inner-steps 20 $NOAMP --out "$out" \
+        || fail "$tag high-lr LayerNorm sweep failed"
+    mkdir -p "$out" && touch "$out/.done"
+}
+
+run_ln_hi isic    "--dataset isic --fractions 0.1 0.4 0.5"
+run_ln_hi eurosat "--dataset eurosat --fractions 0.2 0.1 0.7"
+
 stage "ViT stage 1 complete -- read the grid-edge warnings before launching stage 2"
