@@ -187,4 +187,46 @@ run_group_lr eurosat "$EURO_DATA" lnhalves "ln_scale_ft ln_shift_ft" "1e-3 3e-3 
 run_group_lr eurosat "$EURO_DATA" weights   "attn_only_ft mlp_only_ft" "3e-6 1e-5 3e-5 1e-4"
 run_group_lr eurosat "$EURO_DATA" patch     "patch_embed_ft"           "1e-6 1e-5 1e-4 1e-3 1e-2"
 
+# -- stage 2a-ext: the weights grid was pitched too low -----------------------
+#
+# attn_only_ft on ISIC rose monotonically across the whole weights grid --
+# 44.56 / 47.09 / 48.51 / 49.65 at 1e-5 / 3e-5 / 1e-4 / 3e-4 -- so it peaks at the
+# top end and 3e-4 is "largest tried", not an optimum.
+#
+# My grid choice was wrong and the reason is worth recording: I put attn and mlp in
+# full_ft's regime because they are large weight matrices like conv. But regime
+# tracks the FRACTION of the backbone being adapted, not whether the parameters are
+# weights. attention is roughly a third of a ViT's parameters, so it sits between
+# full_ft (100%, 1e-4) and LayerNorm (0.06%, 1e-1) and wants a step size between
+# them -- which is exactly what the curve says. Same argument applies to mlp.
+#
+# Extended upward to 1e-3 3e-3 1e-2. If a group peaks at the top of THIS grid too,
+# extend again; do not accept an edge.
+WEIGHT_LRS_HI="1e-3 3e-3 1e-2"
+
+run_weights_hi() {
+    local tag="$1"
+    local data="$2"
+    local out="results/vit_g_${tag}_weightshi"
+    if [ -f "$out/.done" ]; then
+        echo "[skip] $tag high-lr weights sweep already done"
+        return
+    fi
+    stage "$tag weights high learning rates: $WEIGHT_LRS_HI"
+    # shellcheck disable=SC2086
+    $PY experiments/sweep_lr.py $data --arch "$ARCH" \
+        --k-shot "$SHOT" --episodes "$EPISODES" \
+        --baselines attn_only_ft mlp_only_ft --lrs $WEIGHT_LRS_HI \
+        --inner-steps 20 $NOAMP --out "$out" \
+        || fail "$tag high-lr weights sweep failed"
+    mkdir -p "$out" && touch "$out/.done"
+}
+
+# Both datasets: the fraction-of-backbone argument above is architectural, not
+# dataset-specific, so EuroSAT's weights grid is pitched too low for the same
+# reason even though its numbers are not in yet. If EuroSAT turns out to peak
+# interior on the original grid, this sweep simply confirms the decline above it.
+run_weights_hi isic    "$ISIC_DATA"
+run_weights_hi eurosat "$EURO_DATA"
+
 stage "ViT stage 2a complete -- check every group for a grid-edge peak before stage 2b"
