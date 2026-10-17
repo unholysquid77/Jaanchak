@@ -414,3 +414,55 @@ diagonal advantage on ISIC clears that. EuroSAT's 0.76-point `ssf`/`rank16` gap 
 §6 does not, which is a second reason that section claims no winner there.
 
 Raw: `results/precomputed_seed{0,1,2}/`, log `logs/seed_spread.log`. ~2 GPU-hours.
+
+## 8. ChestX is blocked; the mechanism test moves inside EuroSAT
+
+§6 proposes a mechanism — the winning basis is the one aligned with the larger
+share of displacement energy — and names ChestX as the predictive test. **ChestX
+is not runnable.** `data/` on the box holds eurosat and isic2018 only; the loader
+exists and is unit-tested but §7 of `docs/EXPERIMENT_LOG.md` records the data as
+"not obtainable automatically", and it is a manual NIH download. Disk is not the
+constraint (319 GB free). Not attempted unprompted.
+
+### 8.1 The free version of the test, and why it fails on ISIC
+
+A third dataset gives the hypothesis one more point. The per-unit data already
+collected gives it seventeen, if diagonal share predicts realised benefit *across
+units*. Recomputing from `results/unit_benefit/` and `results/subspace/` (no GPU):
+
+```
+spearman, 17 ISIC units      diag share vs benefit_only   -0.576
+                             diag share vs benefit_loo    +0.010
+                             displacement norm vs only    +0.701
+                             displacement norm vs loo     +0.194
+```
+
+The sign is *against* the hypothesis — less-diagonal units pay off more — but the
+result is not usable, and it is worth being explicit about why rather than
+reporting the correlation. On ISIC, diagonal share runs 0.981 at the stem down to
+0.884 at layer4_1, **monotonically with depth and across a range of only 0.097**.
+Displacement norm rises monotonically with depth over the same units. So diagonal
+share, norm, and depth are three names for one axis here, and the −0.576 and
++0.701 are the same confound measured twice. Seventeen points on one collinear
+axis cannot separate them.
+
+### 8.2 EuroSAT can separate them, which is why that run is going instead
+
+EuroSAT's diagonal profile is both **wider and non-monotonic**: stem 0.643, rising
+to 0.909 at layer2_1, falling to 0.678 at layer4_1. A 0.27 range, and the stem —
+the *shallowest* unit — is among the *least* diagonal, where on ISIC it is the
+most. That breaks the collinearity: depth no longer determines diagonal share, so
+a per-unit benefit measurement on EuroSAT can ask whether diagonal share predicts
+benefit independently of depth and norm.
+
+Running: `diagnose_unit_benefit.py` on EuroSAT val, 30 episodes, `--inner-lr 1e-5`,
+`--no-amp`, ~1 GPU-hour (2 + 2·17 = 36 adaptation runs per episode, hence 30
+episodes rather than hundreds). This substitutes for the blocked ChestX arm on the
+same question; it is not the same experiment and does not give the cross-dataset
+point ChestX would.
+
+One caution recorded in advance, so it is not rationalised after the fact: §2
+found units highly redundant, and the ISIC numbers above show it — `benefit_loo`
+is near zero for every unit while `benefit_only` is not. If EuroSAT repeats that,
+only the `only` intervention will carry signal, and a correlation computed on
+`loo` will be uninterpretable regardless of which way it points.
