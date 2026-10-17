@@ -257,3 +257,21 @@ def test_every_vit_baseline_is_a_distinct_experiment(backbone: TappedBackbone) -
     )
     for key, (names, _) in stepping.items():
         assert names, f"{key} selected nothing on a ViT"
+
+
+def test_last_layer_ft_is_the_last_block_not_the_trailing_norm(
+    backbone: TappedBackbone,
+) -> None:
+    """``unit_names[-1]`` is the pre-head LayerNorm on a ViT, which has ~1.5k
+    parameters. If last_layer_ft resolved to it, the baseline would be effectively
+    frozen while still reporting an accuracy."""
+    from arc.train.baselines import BASELINES
+
+    _, select, _ = BASELINES["last_layer_ft"].build(backbone, 10)
+    select(backbone)
+    opened = _names(backbone)
+    assert opened, "last_layer_ft selected nothing"
+    assert all(n.startswith("block_11.") for n in opened), sorted(opened)
+    # A whole transformer block, not just a norm: attention and MLP must be in there.
+    assert any(".attn." in n for n in opened)
+    assert any(".mlp." in n for n in opened)

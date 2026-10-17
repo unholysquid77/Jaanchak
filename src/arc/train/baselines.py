@@ -68,7 +68,14 @@ def _frozen_proto(backbone: TappedBackbone, inner_steps: int):
 
 
 def _last_layer_ft(backbone: TappedBackbone, inner_steps: int):
-    return StaticController(_ones(backbone)), select_units(backbone.unit_names[-1]), inner_steps
+    # The last *computational* unit, not literally unit_names[-1]. On a ResNet those
+    # coincide (layer4_2, a full bottleneck). On a ViT unit_names[-1] is the pre-head
+    # LayerNorm -- 1536 parameters -- so taking it literally would make
+    # "fine-tune the last layer" a near-frozen baseline that still reports a number.
+    # That is the mis-baseline class select_* guards against, so it is handled here
+    # rather than left to the caller.
+    names = [n for n in backbone.unit_names if n != "norm"]
+    return StaticController(_ones(backbone)), select_units(names[-1]), inner_steps
 
 
 def _stage4_ft(backbone: TappedBackbone, inner_steps: int):
