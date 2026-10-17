@@ -78,12 +78,30 @@ def select_units(*names: str) -> ParamSelector:
     return selector
 
 
+def _require_family(backbone: TappedBackbone, family: str, selector: str) -> None:
+    """Refuse to run a selector on a backbone it cannot select anything in.
+
+    Without this, a ViT selector on a ResNet (or vice versa) opens the empty set and
+    the run proceeds as a silent frozen baseline that reports a plausible-looking
+    number. That is precisely the class of defect tests/test_selectors.py was written
+    for after the BatchNorm baseline ran as full fine-tuning for a whole sweep, so it
+    is an exception rather than a warning.
+    """
+    actual = "vit" if getattr(backbone, "is_vit", False) else "resnet"
+    if actual != family:
+        raise ValueError(
+            f"{selector} is a {family} selector but the backbone is {actual} "
+            f"(arch={getattr(backbone, 'arch', '?')!r}); it would select nothing"
+        )
+
+
 def select_batchnorm(backbone: TappedBackbone) -> None:
     """Only BatchNorm affine parameters, across every unit.
 
     A strong and very cheap domain-shift baseline that is often omitted and often
     competitive -- worth beating explicitly rather than ignoring.
     """
+    _require_family(backbone, "resnet", "select_batchnorm")
     backbone.adapted.requires_grad_(False)
     for module in backbone.adapted.modules():
         if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
@@ -111,6 +129,7 @@ def select_bn_scale(backbone: TappedBackbone) -> None:
     mode of few-shot representation change actually is -- the same quantity
     ``experiments/diagnose_subspace.py`` measures directly in activation space.
     """
+    _require_family(backbone, "resnet", "select_bn_scale")
     backbone.adapted.requires_grad_(False)
     for module in _bn_modules(backbone):
         if module.weight is not None:
@@ -119,6 +138,7 @@ def select_bn_scale(backbone: TappedBackbone) -> None:
 
 def select_bn_shift(backbone: TappedBackbone) -> None:
     """Only BatchNorm *shift* (``bias``). Counterpart to :func:`select_bn_scale`."""
+    _require_family(backbone, "resnet", "select_bn_shift")
     backbone.adapted.requires_grad_(False)
     for module in _bn_modules(backbone):
         if module.bias is not None:
@@ -132,6 +152,7 @@ def select_conv(backbone: TappedBackbone) -> None:
     because it is expected to win but because the accuracy-per-parameter frontier is
     only interpretable with both ends of it measured.
     """
+    _require_family(backbone, "resnet", "select_conv")
     backbone.adapted.requires_grad_(False)
     for name, module in backbone.adapted.named_modules():
         if isinstance(module, torch.nn.Conv2d) and "downsample" not in name:
@@ -145,12 +166,115 @@ def select_downsample(backbone: TappedBackbone) -> None:
     group that can rescale the identity branch rather than the residual branch -- a
     structurally different kind of intervention from the other groups.
     """
+    _require_family(backbone, "resnet", "select_downsample")
     backbone.adapted.requires_grad_(False)
     for name, module in backbone.adapted.named_modules():
         if "downsample" not in name:
             continue
         if isinstance(module, (torch.nn.Conv2d, torch.nn.modules.batchnorm._BatchNorm)):
             module.requires_grad_(True)
+
+
+# -- ViT parameter-type partition --------------------------------------------
+#
+# Deliberately a *different* partition from the ResNet one above, not a rename of
+# it. ResNet splits into {BatchNorm affine, conv, shortcut projections}; a ViT block
+# has no BatchNorm, no convolution after the patch embedding, and no shortcut
+# projection. Its natural split is {LayerNorm affine, attention, MLP, patch
+# embedding}, which together partition every backbone parameter exactly once --
+# asserted in tests/test_selectors_vit.py rather than assumed.
+#
+# LayerNorm carries no running statistics, so unlike the BatchNorm baselines these
+# have no transductive variant and no bn_mode interaction. That removes a confound
+# the whole ResNet arm carries: see docs/RESULTS_SUBSPACE.md on bn_mode="train".
+
+
+def _ln_modules(backbone: TappedBackbone):
+    return (
+        m for m in backbone.adapted.modules()
+        if isinstance(m, torch.nn.LayerNorm)
+    )
+
+
+def select_layernorm(backbone: TappedBackbone) -> None:
+    """Only LayerNorm affine parameters. The ViT analogue of ``select_batchnorm``.
+
+    This is LN-Tune (Basu et al. 2023) and is the baseline the ViT arm most needs to
+    beat explicitly, for the same reason BatchNorm-only was on ResNet: it is almost
+    free and frequently competitive.
+    """
+    _require_family(backbone, "vit", "select_layernorm")
+    backbone.adapted.requires_grad_(False)
+    for module in _ln_modules(backbone):
+        if module.weight is not None:
+            module.weight.requires_grad_(True)
+        if module.bias is not None:
+            module.bias.requires_grad_(True)
+
+
+def select_ln_scale(backbone: TappedBackbone) -> None:
+    """Only LayerNorm *scale*. Counterpart to :func:`select_ln_shift`.
+
+    Same question ``select_bn_scale`` asks on ResNet -- whether adaptation is mostly a
+    diagonal rescaling or mostly a translation -- on an architecture where the answer
+    is not contaminated by running statistics.
+    """
+    _require_family(backbone, "vit", "select_ln_scale")
+    backbone.adapted.requires_grad_(False)
+    for module in _ln_modules(backbone):
+        if module.weight is not None:
+            module.weight.requires_grad_(True)
+
+
+def select_ln_shift(backbone: TappedBackbone) -> None:
+    """Only LayerNorm *shift*. Counterpart to :func:`select_ln_scale`."""
+    _require_family(backbone, "vit", "select_ln_shift")
+    backbone.adapted.requires_grad_(False)
+    for module in _ln_modules(backbone):
+        if module.bias is not None:
+            module.bias.requires_grad_(True)
+
+
+def select_attn(backbone: TappedBackbone) -> None:
+    """Attention projections only (qkv and the output proj), weights and biases.
+
+    Matched against :func:`select_mlp` this asks where few-shot adaptation actually
+    acts in a transformer: in how tokens are mixed, or in how each token is
+    transformed. On ResNet there is no such distinction to draw.
+    """
+    _require_family(backbone, "vit", "select_attn")
+    backbone.adapted.requires_grad_(False)
+    for name, module in backbone.adapted.named_modules():
+        if isinstance(module, torch.nn.Linear) and ".attn." in f".{name}.":
+            module.requires_grad_(True)
+
+
+def select_mlp(backbone: TappedBackbone) -> None:
+    """Block MLP only (fc1 and fc2), weights and biases. Counterpart to
+    :func:`select_attn`, and the larger half of a ViT block's parameters."""
+    _require_family(backbone, "vit", "select_mlp")
+    backbone.adapted.requires_grad_(False)
+    for name, module in backbone.adapted.named_modules():
+        if isinstance(module, torch.nn.Linear) and ".mlp." in f".{name}.":
+            module.requires_grad_(True)
+
+
+def select_patch_embed(backbone: TappedBackbone) -> None:
+    """Patch-embedding projection, plus ``cls_token`` and ``pos_embed``.
+
+    The ViT counterpart to adapting the ResNet stem, and the only place a ViT has a
+    convolution. cls_token and pos_embed are included because they are the stem
+    unit's own parameters and excluding them would leave a hole in the partition.
+    """
+    _require_family(backbone, "vit", "select_patch_embed")
+    backbone.adapted.requires_grad_(False)
+    # nn.ModuleDict has no .get(); membership test then index.
+    if "stem" not in backbone.adapted:
+        return
+    for pname, param in backbone.adapted["stem"].named_parameters():
+        if "blocks." in pname:
+            continue
+        param.requires_grad_(True)
 
 
 class StaticController:

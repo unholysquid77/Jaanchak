@@ -23,13 +23,26 @@ import torch
 def _pool(activation: torch.Tensor) -> torch.Tensor:
     """Reduce an activation to ``(batch, channels)``.
 
-    Convolutional activations are globally average-pooled over space. CKA needs a
+    Convolutional activations are globally average-pooled over space and transformer
+    tokens are averaged over position. CKA needs a
     2-D matrix of (samples x features), and pooling keeps the sample axis equal to the
     batch, which is what makes the comparison between the frozen and adapted branches
     sample-aligned -- the property the whole measure rests on.
     """
     if activation.ndim == 4:
         return activation.mean(dim=(2, 3))
+    if activation.ndim == 3:
+        # Transformer tokens, (batch, tokens, channels). Averaged over tokens, which
+        # is the direct analogue of the spatial pooling above: both collapse the
+        # positional axis and keep (sample x channel).
+        #
+        # NOT flatten(1), which was the previous fallback here. Flattening is a
+        # legitimate feature space but not a comparable one -- it yields
+        # tokens*channels position-specific features (75k for ViT-S/16 at 224px
+        # against ResNet-50's 2048) and folds position into the feature axis, so
+        # drift measured that way is not on the same scale as the ResNet arm's and
+        # the two cannot be put in one table.
+        return activation.mean(dim=1)
     if activation.ndim == 2:
         return activation
     return activation.flatten(1)

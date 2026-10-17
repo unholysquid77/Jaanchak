@@ -32,9 +32,15 @@ from arc.train.episodic import (
     select_batchnorm,
     select_bn_scale,
     select_bn_shift,
+    select_attn,
     select_conv,
     select_downsample,
+    select_layernorm,
+    select_ln_scale,
+    select_ln_shift,
+    select_mlp,
     select_none,
+    select_patch_embed,
     select_units,
 )
 
@@ -45,6 +51,11 @@ class BaselineSpec:
     description: str
     build: Callable[[TappedBackbone, int], tuple[StaticController, ParamSelector, int]]
     tunable: bool = True
+    # Which backbone family this baseline is defined for. "resnet" and "vit" baselines
+    # are not interchangeable -- a ViT parameter-type baseline selects nothing on a
+    # ResNet and would run as a silent frozen baseline -- so callers that sweep
+    # BASELINES must filter on this. None means architecture-agnostic.
+    arch_family: str | None = None
 
 
 def _ones(backbone: TappedBackbone) -> torch.Tensor:
@@ -102,6 +113,30 @@ def _progressive_unfreeze(backbone: TappedBackbone, inner_steps: int):
     return StaticController(schedule[-1], schedule=schedule), select_all, inner_steps
 
 
+def _ln_only_ft(backbone: TappedBackbone, inner_steps: int):
+    return StaticController(_ones(backbone)), select_layernorm, inner_steps
+
+
+def _ln_scale_ft(backbone: TappedBackbone, inner_steps: int):
+    return StaticController(_ones(backbone)), select_ln_scale, inner_steps
+
+
+def _ln_shift_ft(backbone: TappedBackbone, inner_steps: int):
+    return StaticController(_ones(backbone)), select_ln_shift, inner_steps
+
+
+def _attn_only_ft(backbone: TappedBackbone, inner_steps: int):
+    return StaticController(_ones(backbone)), select_attn, inner_steps
+
+
+def _mlp_only_ft(backbone: TappedBackbone, inner_steps: int):
+    return StaticController(_ones(backbone)), select_mlp, inner_steps
+
+
+def _patch_embed_ft(backbone: TappedBackbone, inner_steps: int):
+    return StaticController(_ones(backbone)), select_patch_embed, inner_steps
+
+
 BASELINES: dict[str, BaselineSpec] = {
     "frozen_proto": BaselineSpec(
         "frozen_proto",
@@ -112,9 +147,9 @@ BASELINES: dict[str, BaselineSpec] = {
     "last_layer_ft": BaselineSpec(
         "last_layer_ft", "Fine-tune the final bottleneck only", _last_layer_ft
     ),
-    "stage4_ft": BaselineSpec("stage4_ft", "Fine-tune all of stage 4", _stage4_ft),
+    "stage4_ft": BaselineSpec("stage4_ft", "Fine-tune all of stage 4", _stage4_ft, arch_family="resnet"),
     "bn_only_ft": BaselineSpec(
-        "bn_only_ft", "Adapt BatchNorm affine parameters only", _bn_only_ft
+        "bn_only_ft", "Adapt BatchNorm affine parameters only", _bn_only_ft, arch_family="resnet"
     ),
     "progressive_unfreeze": BaselineSpec(
         "progressive_unfreeze", "Open units top-down across the inner loop", _progressive_unfreeze
@@ -128,15 +163,43 @@ BASELINES: dict[str, BaselineSpec] = {
     # than at matched budget, because convolution weights are 88% of the backbone and
     # cannot be budget-matched to BatchNorm's 0.2%.
     "bn_scale_ft": BaselineSpec(
-        "bn_scale_ft", "Adapt BatchNorm scale (weight) only, ~0.11%", _bn_scale_ft
+        "bn_scale_ft", "Adapt BatchNorm scale (weight) only, ~0.11%", _bn_scale_ft, arch_family="resnet"
     ),
     "bn_shift_ft": BaselineSpec(
-        "bn_shift_ft", "Adapt BatchNorm shift (bias) only, ~0.11%", _bn_shift_ft
+        "bn_shift_ft", "Adapt BatchNorm shift (bias) only, ~0.11%", _bn_shift_ft, arch_family="resnet"
     ),
     "conv_only_ft": BaselineSpec(
-        "conv_only_ft", "Adapt convolution weights only, no shortcuts, ~88%", _conv_only_ft
+        "conv_only_ft", "Adapt convolution weights only, no shortcuts, ~88%", _conv_only_ft, arch_family="resnet"
     ),
     "downsample_ft": BaselineSpec(
-        "downsample_ft", "Adapt shortcut projections only, ~11.8%", _downsample_ft
+        "downsample_ft", "Adapt shortcut projections only, ~11.8%", _downsample_ft, arch_family="resnet"
+    ),
+    # ViT parameter-type partition. Only meaningful on a ViT backbone -- on a ResNet
+    # every one of these selects nothing, which is why experiments assert the arch
+    # rather than silently reporting a frozen number. The partition is
+    # {LayerNorm affine, attention, MLP, patch embedding} and covers every backbone
+    # parameter exactly once; ln_scale/ln_shift subdivide the first group.
+    #
+    # ln_only_ft is LN-Tune (Basu et al. 2023) and attn/mlp is the split a ResNet
+    # cannot express at all, so this is the half of the parameter-type question that
+    # is genuinely new rather than a port.
+    "ln_only_ft": BaselineSpec(
+        "ln_only_ft", "Adapt LayerNorm affine parameters only (LN-Tune)", _ln_only_ft, arch_family="vit"
+    ),
+    "ln_scale_ft": BaselineSpec(
+        "ln_scale_ft", "Adapt LayerNorm scale (weight) only", _ln_scale_ft, arch_family="vit"
+    ),
+    "ln_shift_ft": BaselineSpec(
+        "ln_shift_ft", "Adapt LayerNorm shift (bias) only", _ln_shift_ft, arch_family="vit"
+    ),
+    "attn_only_ft": BaselineSpec(
+        "attn_only_ft", "Adapt attention qkv and output projections only", _attn_only_ft, arch_family="vit"
+    ),
+    "mlp_only_ft": BaselineSpec(
+        "mlp_only_ft", "Adapt block MLP (fc1, fc2) only", _mlp_only_ft, arch_family="vit"
+    ),
+    "patch_embed_ft": BaselineSpec(
+        "patch_embed_ft", "Adapt patch embedding, cls_token and pos_embed only",
+        _patch_embed_ft, arch_family="vit"
     ),
 }

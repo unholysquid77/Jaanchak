@@ -97,6 +97,13 @@ def test_every_baseline_is_a_distinct_experiment() -> None:
     steps = 10
     footprints: dict[str, tuple[tuple, tuple]] = {}
     for key, spec in BASELINES.items():
+        # ViT-only baselines select nothing on a ResNet, so on this backbone they
+        # would all share the empty footprint and collide. They are not skipped
+        # silently anywhere that matters: the selectors themselves raise on the
+        # wrong family (see test_vit_selectors_refuse_a_resnet below), and the ViT
+        # mirror of this test lives in tests/test_selectors_vit.py.
+        if spec.arch_family not in (None, "resnet"):
+            continue
         controller, select, spec_steps = spec.build(net, steps)
         select(net)
         trajectory = tuple(
@@ -171,3 +178,44 @@ def test_no_group_selector_touches_a_batchnorm_running_statistic() -> None:
             "running_mean" not in n and "running_var" not in n
             for n in _selected_names(net)
         )
+
+
+def test_vit_selectors_refuse_a_resnet() -> None:
+    """A ViT selector on a ResNet must raise, not quietly select nothing.
+
+    This is the guard that keeps the arch_family filter above honest. Without it,
+    filtering baselines by family would merely hide the collision in this test
+    while a real sweep could still pass a ViT baseline a ResNet and report the
+    resulting frozen number as a result.
+    """
+    import pytest
+
+    from arc.train.episodic import (
+        select_attn,
+        select_layernorm,
+        select_ln_scale,
+        select_ln_shift,
+        select_mlp,
+        select_patch_embed,
+    )
+
+    net = _backbone()
+    for sel in (
+        select_layernorm,
+        select_ln_scale,
+        select_ln_shift,
+        select_attn,
+        select_mlp,
+        select_patch_embed,
+    ):
+        with pytest.raises(ValueError, match="vit selector"):
+            sel(net)
+
+
+def test_resnet_selectors_declare_their_family() -> None:
+    """Every parameter-type baseline must be tagged, or the filter above lets an
+    untagged ViT baseline through as architecture-agnostic."""
+    for key in ("bn_only_ft", "bn_scale_ft", "bn_shift_ft", "conv_only_ft", "downsample_ft"):
+        assert BASELINES[key].arch_family == "resnet", key
+    for key in ("ln_only_ft", "ln_scale_ft", "ln_shift_ft", "attn_only_ft", "mlp_only_ft"):
+        assert BASELINES[key].arch_family == "vit", key

@@ -60,6 +60,82 @@ def _resnet_units(net: models.ResNet) -> list[tuple[str, nn.Module]]:
     return units
 
 
+def _is_vit(arch: str) -> bool:
+    """A ViT is anything timm names as one and torchvision does not provide here.
+
+    Deliberately a name test rather than an isinstance test: the decision is made
+    before any model is built, because building the wrong family wastes a download
+    and a GPU allocation.
+    """
+    return arch.startswith("vit_") or arch.startswith("deit") or arch.startswith("eva")
+
+
+def _build_vit(arch: str, pretrained: bool) -> nn.Module:
+    """Build a timm ViT with no classifier head.
+
+    ``timm`` is imported here rather than at module scope so that the ResNet path
+    -- and every existing test and result -- keeps working on an environment that
+    has no timm installed.
+    """
+    try:
+        import timm
+    except ImportError as exc:  # pragma: no cover - environment-dependent
+        raise ImportError(
+            f"arch {arch!r} needs timm; install it (uv pip install timm) or use a "
+            "torchvision ResNet name"
+        ) from exc
+    return timm.create_model(arch, pretrained=pretrained, num_classes=0)
+
+
+class _ViTStem(nn.Module):
+    """Everything a ViT does before its first transformer block.
+
+    Holds the ``VisionTransformer`` itself and calls timm's own ``_pos_embed``
+    rather than reimplementing it. That matters: ``_pos_embed`` branches on
+    ``no_embed_class``, dynamic image size and register tokens, and a
+    hand-rolled "prepend CLS then add pos_embed" is silently wrong for several
+    of timm's checkpoints. The host model's ``blocks`` and ``norm`` are emptied
+    by :func:`_vit_units` after the blocks are extracted, so no parameter is
+    owned twice.
+    """
+
+    def __init__(self, vit: nn.Module) -> None:
+        super().__init__()
+        self.vit = vit
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        v = self.vit
+        x = v.patch_embed(x)
+        x = v._pos_embed(x)
+        x = v.patch_drop(x)
+        return v.norm_pre(x)
+
+
+def _vit_units(vit: nn.Module) -> list[tuple[str, nn.Module]]:
+    """Split a timm ``VisionTransformer`` into controllable units.
+
+    ViT-S/16 gives 14: the stem, 12 blocks, and the pre-head LayerNorm. The
+    trailing ``norm`` is its own unit rather than being folded into block_11 or
+    attached to the pooling step, for one reason: every parameter must sit in
+    exactly one gated unit, or the ``a_l = 0`` endpoint stops being bit-exact
+    against the pretrained network and the framework's correctness anchor is
+    gone. ``cls_token`` and ``pos_embed`` are parameters too, which is why the
+    stem owns the model object instead of a copy of its pieces.
+    """
+    blocks = list(vit.blocks)
+    head_norm = vit.norm
+
+    # Transfer ownership out of the host model so the ModuleDict is the sole
+    # owner. Done after the references are taken, never before.
+    vit.blocks = nn.ModuleList()
+    vit.norm = nn.Identity()
+
+    units: list[tuple[str, nn.Module]] = [("stem", _ViTStem(vit))]
+    units += [(f"block_{i}", b) for i, b in enumerate(blocks)]
+    units.append(("norm", head_norm))
+    return units
+
+
 class TappedBackbone(nn.Module):
     """A pretrained backbone paired with a frozen twin, gated per block.
 
@@ -81,14 +157,31 @@ class TappedBackbone(nn.Module):
         tap: Sequence[str] | None = None,
     ) -> None:
         super().__init__()
-        weights = "DEFAULT" if pretrained else None
-        adapted_net: models.ResNet = getattr(models, arch)(weights=weights)
-        frozen_net: models.ResNet = getattr(models, arch)(weights=weights)
-        frozen_net.load_state_dict(adapted_net.state_dict())
+        self.arch = arch
+        self.is_vit = _is_vit(arch)
 
-        self.embed_dim: int = adapted_net.fc.in_features
-        self.adapted = nn.ModuleDict(dict(_resnet_units(adapted_net)))
-        self.frozen = nn.ModuleDict(dict(_resnet_units(frozen_net)))
+        if self.is_vit:
+            adapted_net = _build_vit(arch, pretrained)
+            frozen_net = _build_vit(arch, pretrained)
+            frozen_net.load_state_dict(adapted_net.state_dict())
+            # Read embed_dim and the prefix-token count BEFORE splitting: the split
+            # empties the host model, so these attributes must be captured first.
+            self.embed_dim: int = adapted_net.embed_dim
+            self.n_prefix_tokens: int = int(getattr(adapted_net, "num_prefix_tokens", 1))
+            self.global_pool: str = str(getattr(adapted_net, "global_pool", "token"))
+            split = _vit_units
+        else:
+            weights = "DEFAULT" if pretrained else None
+            adapted_net = getattr(models, arch)(weights=weights)
+            frozen_net = getattr(models, arch)(weights=weights)
+            frozen_net.load_state_dict(adapted_net.state_dict())
+            self.embed_dim = adapted_net.fc.in_features
+            self.n_prefix_tokens = 0
+            self.global_pool = "avg"
+            split = _resnet_units
+
+        self.adapted = nn.ModuleDict(dict(split(adapted_net)))
+        self.frozen = nn.ModuleDict(dict(split(frozen_net)))
         self.unit_names: list[str] = list(self.adapted.keys())
         self.tap: list[str] = list(tap) if tap is not None else list(self.unit_names)
 
@@ -127,6 +220,24 @@ class TappedBackbone(nn.Module):
         self.frozen.eval()  # never follows the module's train/eval state
         return self
 
+    def _embed(self, h: torch.Tensor) -> torch.Tensor:
+        """Collapse a final-unit activation into an embedding vector.
+
+        ResNet hands back ``(B, C, H, W)`` and gets global average pooling. A ViT
+        hands back ``(B, N, D)`` tokens and gets whatever its checkpoint was
+        trained to read: the CLS token for ``global_pool="token"``, the mean over
+        patch tokens (excluding prefix tokens) otherwise. Using the wrong one is
+        not a small error -- a CLS-trained checkpoint read by mean-pooling loses
+        several accuracy points for no visible reason.
+        """
+        if h.dim() == 4:
+            return torch.flatten(self.pool(h), 1)
+        if h.dim() != 3:
+            raise ValueError(f"cannot embed activation of shape {tuple(h.shape)}")
+        if self.global_pool == "token":
+            return h[:, 0]
+        return h[:, self.n_prefix_tokens :].mean(dim=1)
+
     # -- forward paths -------------------------------------------------------
 
     @torch.no_grad()
@@ -139,7 +250,7 @@ class TappedBackbone(nn.Module):
             h = self.frozen[name](h)
             if name in self.tap:
                 acts[name] = h
-        return ForwardResult(embedding=torch.flatten(self.pool(h), 1), activations=acts)
+        return ForwardResult(embedding=self._embed(h), activations=acts)
 
     def forward_adapted(self, x: torch.Tensor) -> ForwardResult:
         """Pure adapted forward -- equivalent to ``forward`` with all gates at 1."""
@@ -149,7 +260,7 @@ class TappedBackbone(nn.Module):
             h = self._run_adapted(name, h)
             if name in self.tap:
                 acts[name] = h
-        return ForwardResult(embedding=torch.flatten(self.pool(h), 1), activations=acts)
+        return ForwardResult(embedding=self._embed(h), activations=acts)
 
     def _run_adapted(self, name: str, h: torch.Tensor) -> torch.Tensor:
         """Apply one adapted unit, optionally with gradient checkpointing.
@@ -197,11 +308,14 @@ class TappedBackbone(nn.Module):
                 h_adp = self._run_adapted(name, h)
                 with torch.no_grad():
                     h_ref = self.frozen[name](h)
-                # a broadcasts over (B, C, H, W) whether scalar or per-channel.
+                # a broadcasts over (B, C, H, W) for a ResNet and (B, N, D) for a
+                # ViT when scalar. A per-channel gate is 4D-only: on tokens it would
+                # broadcast along D, which is channels, so it still lines up -- but a
+                # per-*token* gate would not and is not supported.
                 h = torch.lerp(h_ref, h_adp, a)
             if name in self.tap:
                 acts[name] = h
-        return ForwardResult(embedding=torch.flatten(self.pool(h), 1), activations=acts)
+        return ForwardResult(embedding=self._embed(h), activations=acts)
 
     # -- adaptation accounting ----------------------------------------------
 
