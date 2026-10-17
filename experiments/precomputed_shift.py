@@ -162,6 +162,13 @@ def main() -> None:
     p.add_argument("--fit-lr", type=float, default=0.1)
     p.add_argument("--split-seed", type=int, default=0)
     p.add_argument("--seed", type=int, default=0)
+    # Separate from --seed on purpose. Measuring how reproducible the EXTRACTED
+    # correction is requires varying the extraction draw while holding the
+    # evaluation episodes fixed; --seed moves both, and eval-episode sampling
+    # alone contributes ~0.9 points at 200 episodes, which would swamp the
+    # ~0.56-point extraction spread the measurement is trying to resolve.
+    p.add_argument("--extract-seed", type=int, default=None,
+                   help="extraction draw seed; defaults to --seed")
     p.add_argument("--no-pretrained", action="store_true", help="smoke-testing only")
     p.add_argument("--grad-checkpoint", action="store_true")
     p.add_argument("--no-amp", action="store_true")
@@ -193,7 +200,8 @@ def main() -> None:
     runner.inner_steps = steps
     train_sampler = EpisodicSampler(
         source, splits["train"], n_way=args.n_way, k_shot=args.k_shot,
-        n_query=args.n_query, n_episodes=args.extract_episodes, seed=args.seed + 20_000,
+        n_query=args.n_query, n_episodes=args.extract_episodes,
+        seed=(args.seed if args.extract_seed is None else args.extract_seed) + 20_000,
     )
 
     acc_g: dict[str, list] = {u: [] for u in units}
