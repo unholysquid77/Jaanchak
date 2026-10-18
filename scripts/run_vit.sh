@@ -229,4 +229,47 @@ run_weights_hi() {
 run_weights_hi isic    "$ISIC_DATA"
 run_weights_hi eurosat "$EURO_DATA"
 
+# -- stage 2a-ext2: EuroSAT's LayerNorm-halves grid was also too low ----------
+#
+# Both halves peaked at 3e-2, the top of their grid:
+#   ln_scale  1e-3:79.95  3e-3:80.00  1e-2:82.16  3e-2:85.20
+#   ln_shift  1e-3:79.23  3e-3:80.43  1e-2:83.49  3e-2:83.79
+#
+# I centred that grid on ln_only_ft's EuroSAT peak (1e-2), reasoning the halves
+# live in the same regime as the pair. Wrong again, and in the same direction: a
+# half has HALF the parameters, so by the fraction-of-backbone argument it wants a
+# LARGER step than the pair, not the same one. ln_only collapsed at 1e-1 (71.89)
+# but that does not bound the halves -- fewer parameters moving means the same
+# step size does less damage.
+#
+# This is the fourth upward extension (ln_only twice, ISIC weights, now this), and
+# every one has been me pitching the top of a grid too low. The bias is systematic:
+# when in doubt about a small-fraction group, start higher than feels right.
+#
+# 1e-1 and 3e-1. ln_scale at 85.20 is already above full_ft's 84.29, so where it
+# actually peaks matters for the table rather than being a formality.
+LN_HALVES_LRS_HI="1e-1 3e-1"
+
+run_lnhalves_hi() {
+    local tag="$1"
+    local data="$2"
+    local out="results/vit_g_${tag}_lnhalveshi"
+    if [ -f "$out/.done" ]; then
+        echo "[skip] $tag high-lr LayerNorm-halves sweep already done"
+        return
+    fi
+    stage "$tag LayerNorm-halves high learning rates: $LN_HALVES_LRS_HI"
+    # shellcheck disable=SC2086
+    $PY experiments/sweep_lr.py $data --arch "$ARCH" \
+        --k-shot "$SHOT" --episodes "$EPISODES" \
+        --baselines ln_scale_ft ln_shift_ft --lrs $LN_HALVES_LRS_HI \
+        --inner-steps 20 $NOAMP --out "$out" \
+        || fail "$tag high-lr LayerNorm-halves sweep failed"
+    mkdir -p "$out" && touch "$out/.done"
+}
+
+# EuroSAT only. ISIC's halves both peaked interior at 1e-1 (49.95 and 49.92, with
+# 3e-1 dropping to 45.57 and 34.43), so they are already bracketed.
+run_lnhalves_hi eurosat "$EURO_DATA"
+
 stage "ViT stage 2a complete -- check every group for a grid-edge peak before stage 2b"
