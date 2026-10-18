@@ -147,7 +147,7 @@ episodes, which halves the interval if the accuracies hold, and that is what
 decides it.
 ---
 
-## 2. Stage 2a: the parameter-type partition on ISIC
+## 2. Stage 2a: the parameter-type partition
 
 Every group at **its own** tuned learning rate, 50 episodes, every peak now
 bracketed on both sides. The partition is exact — LayerNorm + attention + MLP +
@@ -222,6 +222,65 @@ then **35.60** at 1e-3, 32.40 at 3e-3, 28.61 at 1e-2. `mlp` does the same from 1
 (49.65 → 42.08 → 33.47 → 25.23). Both peaks are now interior, so the band is real
 rather than an artefact of grids that stopped too early.
 
+### 2.5 The same table on EuroSAT, and the ceiling does **not** reproduce
+
+Same protocol, same partition, every group at its own tuned learning rate. Five of
+the six are now bracketed on both sides; `patch_embed_ft` peaks at the smallest step
+tried and is the one open edge (stage 2b extends it downward).
+
+| group | % params | lr | val acc |
+|---|---|---|---|
+| `mlp_only_ft` | 66.049 | 1e-4 | **85.57 ± 1.55** |
+| `ln_scale_ft` | 0.022 | 3e-2 | 85.20 ± 1.73 |
+| `attn_only_ft` | 33.041 | 1e-4 | 84.96 ± 1.75 |
+| `ln_only_ft` | 0.045 | 1e-2 | 84.32 ± 1.69 |
+| `full_ft` | 100.000 | 1e-5 | 84.29 ± 1.69 |
+| `ln_shift_ft` | 0.022 | 3e-2 | 83.79 ± 1.94 |
+| `patch_embed_ft` | 0.866 | 1e-6 | 80.13 ± 1.95 ← bottom edge |
+
+**`full_ft` is fourth of seven.** Three groups sit above it, including the
+19,200-parameter `ln_scale_ft` at 85.20. The whole six-group band spans 1.78 points
+(83.79–85.57) against intervals of ±1.6 to ±1.9, so the honest reading is that none
+of these groups is distinguishable from any other — `full_ft` included. That is the
+ResNet result reproducing exactly, on a transformer, with LayerNorm in place of
+BatchNorm and therefore without the transductive-statistics confound.
+
+So §2.1's ceiling is **not** architectural. It appears on ISIC and not on EuroSAT,
+which makes it a property of the shift rather than of the backbone:
+
+| | band width | `full_ft` vs band |
+|---|---|---|
+| EuroSAT | 1.78 | **inside** (4th of 7) |
+| ISIC | 0.59 | **3.12 above** |
+
+The natural way to describe the difference is headroom — how much there is to gain
+over a frozen backbone — but **this arm has no `frozen_proto` number yet**, on either
+dataset, so the headroom figures quoted in §1.4 are carried over from the ResNet arm
+and are not measurements of this one. Stage 2b runs `frozen_proto` as the floor
+bracket on both datasets, which is what makes "little to gain" and "a lot to gain"
+quantities rather than adjectives.
+
+This is the third independent experiment in this project to land on the same
+shift-magnitude interaction. `RESULTS_SUBSPACE.md` §6.2 found extra basis capacity
+bought 3.5 points on ISIC and nothing on EuroSAT, on ResNet-50. §1.4 here found
+`ln_only_ft` ties `full_ft` on EuroSAT and not on ISIC, on ViT. Now the full
+parameter-type partition says the same thing a third way. Different architectures,
+different interventions, one pattern: **where there is little to gain, every
+parameter group gets all of it; where there is a lot, only joint movement across
+types does.**
+
+That is a real claim and it is the one worth building the paper around, but all
+three legs are at 50-episode tuning counts or single draws. Stage 2b is what turns
+the third leg into a measurement.
+
+### 2.6 Attention and MLP tie on EuroSAT too
+
+84.96 ± 1.75 against 85.57 ± 1.55 — a 0.61-point difference against a combined
+±2.33. Indistinguishable, same as ISIC's zero. Two datasets, both saying that
+doubling the parameter budget and swapping which sublayer moves changes nothing
+measurable. Both learning rates landed on 1e-4 here, so unlike ISIC they were not
+even tuned apart.
+
 ---
 
 ## 3. What is NOT claimed yet
@@ -233,9 +292,15 @@ Explicitly, so none of this gets quoted as a result:
   episodes with `frozen_proto` as the floor bracket, and the §2.1 ceiling in
   particular needs it: the 3.12-point margin between `full_ft` and the top of the
   band does not clear the combined interval (±3.36) at this episode count.
-* **The band in §2.1 is ISIC only.** The EuroSAT partition is swept but two of its
-  groups (`attn`, `mlp`) peaked at the top of their grid and the extension has not
-  landed, so there is no EuroSAT counterpart to the table yet.
+* **`patch_embed_ft` on EuroSAT is unbracketed.** It peaks at the smallest step
+  tried (1e-6) and declines monotonically above it, so its 80.13 is a bound. Stage
+  2b extends it downward; until then its row is the one number in §2.5 that could
+  move.
+* **§2.5's shift-magnitude claim rests on two datasets.** Two points do not
+  establish a monotone relationship between shift magnitude and whether joint
+  movement matters, and "headroom" here is a proxy for shift magnitude, not a
+  measurement of it. ChestX, the third and largest shift, is unobtainable
+  (`RESULTS_SUBSPACE.md` §8), so this may not be resolvable on BSCD-FSL at all.
 * **§2.1's ceiling has no mechanism behind it.** "Gain comes from different
   parameter types moving together" is the shape of the data, not something measured.
   Nothing here separates it from an optimisation story (seven adapters tuned
