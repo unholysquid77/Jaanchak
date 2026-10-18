@@ -147,23 +147,113 @@ episodes, which halves the interval if the accuracies hold, and that is what
 decides it.
 ---
 
-## 2. What is NOT claimed yet
+## 2. Stage 2a: the parameter-type partition on ISIC
+
+Every group at **its own** tuned learning rate, 50 episodes, every peak now
+bracketed on both sides. The partition is exact — LayerNorm + attention + MLP +
+patch-embedding = 85,798,656 parameters, each owned once, asserted by parameter name
+in `tests/test_selectors_vit.py`.
+
+| group | params | % | lr | val acc |
+|---|---|---|---|---|
+| `full_ft` | 85,798,656 | 100.000 | 1e-4 | **53.07 ± 2.38** |
+| `ln_scale_ft` | 19,200 | 0.022 | 1e-1 | 49.95 ± 2.37 |
+| `ln_shift_ft` | 19,200 | 0.022 | 1e-1 | 49.92 ± 2.44 |
+| `attn_only_ft` | 28,348,416 | 33.041 | 3e-4 | 49.65 ± 2.24 |
+| `mlp_only_ft` | 56,669,184 | 66.049 | 1e-4 | 49.65 ± 2.28 |
+| `ln_only_ft` | 38,400 | 0.045 | 1e-1 | 49.36 ± 2.58 |
+| `patch_embed_ft` | 742,656 | 0.866 | 1e-3 | 46.24 ± 2.23 |
+
+### 2.1 A band, and `full_ft` sitting above all of it
+
+Five of the six groups land in **49.36–49.95**, a 0.59-point band, across a
+**2,951× range** in trainable parameters (19,200 to 56,669,184). That part is the
+ResNet plateau reproducing: parameter count buys almost nothing, and neither does
+parameter kind.
+
+What does **not** reproduce is where `full_ft` sits. On ResNet-50 it was *inside* the
+band. Here it is **3.12 points above the top of it** (53.07 against 49.95) and 3.71
+above the bottom. So on ISIC with a ViT there appears to be a ceiling that no proper
+subset of the parameter-type partition passes — not a parameter-count ceiling, since
+`mlp_only_ft` has two thirds of the backbone open and lands with the 19,200-parameter
+LayerNorm scale group. If that holds, the gain is coming from parameters of
+*different types moving together*, which is a different claim from anything in the
+ResNet arm.
+
+Three reasons this is not stated as a result yet. It is 50 episodes, the tuning
+count. The 3.12-point margin against `ln_scale_ft`'s ±2.37 and `full_ft`'s ±2.38
+(combined ±3.36) does **not** clear zero — only the comparison against `ln_only_ft`
+does, and that one by 0.2 points. And the whole shape rests on one draw. Stage 2b at
+100 episodes is what decides it.
+
+### 2.2 Attention against MLP: the comparison a ResNet cannot express
+
+A ResNet has no attention, so this split exists only on this arm. It is also the one
+place where the fraction-of-backbone argument predicts a visible difference: `mlp` has
+exactly twice `attn`'s parameters (66.0% against 33.0%).
+
+The difference is **zero**. 49.65 ± 2.28 against 49.65 ± 2.24 — the same 1862 of 3750
+correct predictions, which is a coincidence of counts rather than evidence of
+identical behaviour, but the point survives rounding either way: doubling the
+parameter budget and changing which sublayer moves does nothing measurable.
+
+Their learning rates differ by a factor of 3 (`attn` 3e-4, `mlp` 1e-4), in the
+direction fraction-of-backbone predicts — the smaller group wants the larger step —
+so the two were tuned apart and still landed together.
+
+### 2.3 Patch embedding is the one group below the band
+
+46.24 ± 2.23, a clear 3.1 points below `ln_only_ft` and the only group outside the
+band. Its peak is interior, so this is
+not a tuning artefact: the grid is 42.21 / 44.51 / **46.24** / 41.44 / 36.45 across
+1e-5 to 1e-1.
+
+It is also the only group that cannot change how tokens *interact*, only how pixels
+become tokens. Suggestive, and left as that: one dataset, one draw, and EuroSAT's
+`patch_embed_ft` behaves differently enough (peaking at the smallest step tried,
+i.e. closest to frozen) that a single story does not yet cover both.
+
+### 2.4 What settled the question this section was waiting on
+
+`attn_only_ft` peaked at 3e-4, the top of its original grid, which left open the
+possibility that attention alone reaches `full_ft` and the ceiling story is wrong.
+The upward extension closed it: above 3e-4 attention collapses hard — 49.65 at 3e-4,
+then **35.60** at 1e-3, 32.40 at 3e-3, 28.61 at 1e-2. `mlp` does the same from 1e-4
+(49.65 → 42.08 → 33.47 → 25.23). Both peaks are now interior, so the band is real
+rather than an artefact of grids that stopped too early.
+
+---
+
+## 3. What is NOT claimed yet
 
 Explicitly, so none of this gets quoted as a result:
 
-* **The plateau is confirmed on EuroSAT only, and only for one group.**
-  `ln_only_ft` ties `full_ft` there (84.32 / 84.29), which is real and is an
-  interior peak on both sides. But that is one of six groups in the partition at a
-  tuning episode count; `ln_scale`, `ln_shift`, `attn`, `mlp` and `patch_embed` are
-  not run, so "every group plateaus" is not established on ViT. On ISIC nothing is
-  established: `ln_only_ft` is unconverged and currently 3.7 points behind, with
-  overlapping intervals (±2.38, ±2.58).
-* **No attention-vs-MLP result.** Not run.
+* **Every accuracy in §1 and §2 is at 50 episodes, the tuning count.** Nothing
+  here is a reported number. Stage 2b re-measures the whole partition at 100
+  episodes with `frozen_proto` as the floor bracket, and the §2.1 ceiling in
+  particular needs it: the 3.12-point margin between `full_ft` and the top of the
+  band does not clear the combined interval (±3.36) at this episode count.
+* **The band in §2.1 is ISIC only.** The EuroSAT partition is swept but two of its
+  groups (`attn`, `mlp`) peaked at the top of their grid and the extension has not
+  landed, so there is no EuroSAT counterpart to the table yet.
+* **§2.1's ceiling has no mechanism behind it.** "Gain comes from different
+  parameter types moving together" is the shape of the data, not something measured.
+  Nothing here separates it from an optimisation story (seven adapters tuned
+  separately, one tuned jointly) and the project has already had one mechanism die
+  for exactly that reason (`RESULTS_SUBSPACE.md` §6).
+* **§2.2's attention/MLP tie is one draw.** Two groups landing on the same accuracy
+  to four digits is a coincidence of integer counts, not a measurement of
+  equivalence; the claim that survives is "indistinguishable at ±2.3", and only on
+  ISIC.
+* **No ViT seed spread.** `RESULTS_SUBSPACE.md` §7 cost three draws to establish a
+  ±1.1-point floor on the ResNet arm. Nothing equivalent exists here, so every
+  margin in this document is being read against a within-run confidence interval
+  that may understate the real noise.
 * **No displacement or frontier numbers.** Not run. When they are, the code's
   notion of a "diagonal" correction has to be checked against LayerNorm affine
   rather than BatchNorm affine before any of it is trusted.
 
-## 3. Standing cautions inherited from the ResNet arm
+## 4. Standing cautions inherited from the ResNet arm
 
 Three of the first four results in this project were single-draw artefacts, and
 `RESULTS_SUBSPACE.md` §7 establishes a ±1.1-point estimator noise floor on
