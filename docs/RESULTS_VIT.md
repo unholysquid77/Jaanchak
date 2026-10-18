@@ -368,32 +368,55 @@ EuroSAT, adapting the patch embedding is not weak adaptation, it is none. Its
 at 1e-6 most of its parameters do not move at float precision. On ISIC the same
 group reaches 50% of headroom, so the two datasets genuinely differ here.
 
-### 3.3 Attention against MLP, at 100 episodes
+### 3.3 Attention against MLP: not a tie, and attention wins
 
-Still indistinguishable on both, and the intervals are now tight enough for that to
-mean something:
+This is the comparison a ResNet cannot express — it has no attention — so it is the
+one genuinely new question on this arm rather than a port. `mlp` has exactly twice
+`attn`'s parameters (66.0% of the backbone against 33.0%).
 
-| | `attn` (33.0%) | `mlp` (66.0%) | difference | combined ±95% |
-|---|---|---|---|---|
-| ISIC | 50.20 ± 1.62 | 50.01 ± 1.31 | 0.19 | ±2.08 |
-| EuroSAT | 85.96 ± 1.06 | 84.76 ± 1.29 | 1.20 | ±1.67 |
+Three draws each, paired per seed, because §3.4 establishes that is the only valid
+test here:
 
-`mlp` has exactly twice `attn`'s parameters and neither comparison clears the
-combined interval. On EuroSAT `attn` is nominally ahead by 1.20, and `attn` is the
-smaller group — so if anything is there it points away from parameter count, not
-towards it.
+| | seed 0 | seed 1 | seed 2 | mean | sd | 95% CI (n=3) |
+|---|---|---|---|---|---|---|
+| EuroSAT `attn` − `mlp` | +1.20 | +1.00 | +1.35 | **+1.18** | 0.17 | **[+0.76, +1.60]** |
+| ISIC `attn` − `mlp` | +0.19 | +0.84 | +0.28 | +0.44 | 0.35 | [−0.43, +1.31] |
 
-> **This section is now the weakest in §3, and §3.4 is why.** The combined-interval
-> test above is the wrong one for paired data. Applied to `attn` − `full_ft` it
-> understated a real margin by a factor of ~2.6; applied here, EuroSAT's nominal
-> 1.20 could well be a real difference rather than noise. The seed spread covered
-> `full_ft`, `attn`, `ln_only` and `frozen_proto` — **not `mlp`** — so there is no
-> paired spread to settle it with. Until `mlp` gets its own draws, "it does not
-> matter which sublayer you move" is **not** supported on EuroSAT. It still looks
-> right on ISIC, where the difference is 0.19.
+**On EuroSAT attention beats MLP, with half the parameters.** Every draw positive,
+interval well clear of zero. On ISIC the two are indistinguishable.
 
-This is the comparison a ResNet cannot express, which makes leaving it unresolved
-the most annoying gap in the arm.
+**This retracts what an earlier version of this section claimed.** It read "the
+answer is that it does not matter which sublayer you move", on the strength of
+combining the two within-run intervals in quadrature — the test §3.4 shows is wrong
+for paired data, and which understated this margin by about 4×. The nominal gap was
+visible then (1.20 at seed 0) and was dismissed as noise. It is not noise.
+
+### 3.3.1 Capacity has an interior optimum, and it is not at either end
+
+Putting the EuroSAT three-draw means in order of parameter count makes the shape
+plain:
+
+| group | % of backbone | EuroSAT (3-draw mean) |
+|---|---|---|
+| `frozen_proto` | 0 | 79.22 |
+| `ln_only_ft` | 0.045 | 84.18 |
+| **`attn_only_ft`** | **33.0** | **85.56** |
+| `mlp_only_ft` | 66.0 | 84.38 |
+| `full_ft` | 100 | 83.07 |
+
+Not monotone in either direction: an inverted U, peaking around a third of the
+backbone. Going from nothing to 0.045% buys 4.96 points. Going from 0.045% to 33%
+buys another 1.38. Going from 33% to 100% **loses** 2.49.
+
+That is a stronger and more specific statement than §3.5's, and it is what makes the
+overfitting story in §3.5 more than a shrug at `full_ft`: if the only mechanism were
+"more parameters overfit", `ln_only_ft` at 0.045% should be best, and it is not — it
+is 1.38 below `attn`. Something is bought by capacity up to a point and lost beyond
+it, on the same dataset, at matched episodes, each group at its own tuned step size.
+
+Both halves of that curve are three-draw paired measurements except `ln_scale`,
+`ln_shift` and `patch_embed`, which have one draw each and are left out of the table
+for that reason.
 
 ### 3.4 Three draws: both claims survive, and the test I was using was the wrong one
 
@@ -513,11 +536,16 @@ Explicitly, so none of this gets quoted as a result:
   steps, or more shots, or weight decay, and the crossover should move with support
   set size — and none of that has been run. Until it is, "85.8M parameters on 25
   images overfits" is a plausible story about a two-point pattern.
-* **§3.3's attention/MLP tie is not established on EuroSAT.** The seed spread did
-  not include `mlp`, so the nominal 1.20-point gap has no paired spread to be read
-  against, and §3.4 showed the unpaired test understating a real margin by ~2.6×.
-  Two more draws of `mlp_only_ft` on both datasets would settle it; until then the
-  tie stands only on ISIC.
+* **§3.3.1's inverted U has three points on its rising half and two on its
+  falling half.** `ln_only` → `attn` → `mlp` → `full_ft` is suggestive of a smooth
+  curve and is consistent with one, but four groups is not a capacity sweep. A real
+  one would vary capacity *within* a parameter type — a fraction of attention heads,
+  or a fraction of blocks — rather than comparing types that differ in more than
+  size. Nothing rules out the ordering being about *which* parameters rather than
+  *how many*.
+* **The inverted U is EuroSAT only.** On ISIC `attn` − `mlp` is +0.44 ± 0.87, and
+  `full_ft` is top, so there is no falling half to speak of there. Whether the peak
+  moves with shift magnitude or only appears under mild shift is untested.
 * **The seed spread covers four baselines, not eight.** `ln_scale`, `ln_shift`,
   `mlp` and `patch_embed` have one draw each, so every §3 row outside
   {`full_ft`, `attn`, `ln_only`, `frozen_proto`} is still single-draw. The band
