@@ -513,6 +513,49 @@ need a quantity that cannot be separated from depth.
 
 It is still two datasets, one draw each, with no seed spread on this arm.
 
+### 3.6 The inner-step test: the mechanism survives, and the headline strengthens
+
+§3.5 proposes that `full_ft` loses on EuroSAT because 85.8M parameters taking 20
+steps on 25 support images over-optimise where there is little to gain. The
+prediction is that reducing the optimisation **closes the gap**, because the larger
+group is the one being hurt.
+
+EuroSAT, seed 0, 100 episodes, validation. Both groups **re-tuned at each step
+count** — a fixed learning rate would confound less-overfitting with
+less-adaptation, since both predict the same sign for `full_ft`. Every peak below is
+interior on its merged grid.
+
+| inner steps | `attn_only_ft` | `full_ft` | gap |
+|---|---|---|---|
+| 5 | 84.67 (1e-4) | 84.01 (3e-5) | **+0.65** |
+| 10 | 85.33 (1e-4) | 84.64 (3e-5) | **+0.69** |
+| 20 | **85.96** (1e-4) | 83.24 (1e-5) | **+2.72** |
+
+**The two groups respond to optimisation differently, and that is the result.**
+
+* `attn_only_ft` rises monotonically with steps: 84.67 → 85.33 → 85.96. Total +1.29
+  over three points, each step up, against the ~0.6 run-to-run noise §4 records.
+* `full_ft` does not. It is **1.40 points worse at 20 steps than at 10**, which
+  clears that noise. More optimisation makes full fine-tuning worse.
+
+So the 20-step gap is mostly `full_ft` over-optimising rather than attention pulling
+ahead, which is what §3.5 predicted. The mechanism is supported.
+
+**And the headline gets stronger, not weaker.** The obvious worry was that
+`attn_only_ft`'s advantage is an artefact of a step count that happens to suit it.
+Give `full_ft` its *best* step count — 10, at 84.64 — and compare against attention
+at *its* best — 20, at 85.96 — and attention still wins by **1.32**. Best against
+best, adapting a third of the backbone beats adapting all of it.
+
+**What this is not.** Single draw at 5 and 10 steps, so these are compared against
+seed 0 at 20 steps (+2.72) rather than the three-draw mean (+2.50), like with like.
+The 5-versus-10 difference for either group (0.66 and 0.63) sits at the noise floor
+and nothing should be read into it; "`full_ft` peaks at 10" is not established, only
+"`full_ft` at 20 steps is worse than at 10". The step counts are also a crude probe:
+20 → 10 → 5 is three points on one axis, and the mechanism's other predictions —
+more shots, weight decay, the crossover moving with support-set size — remain
+unrun.
+
 ---
 
 ## 4. What is NOT claimed yet
@@ -531,11 +574,12 @@ Explicitly, so none of this gets quoted as a result:
   a proxy.
   ChestX, the third and largest shift, is unobtainable (`RESULTS_SUBSPACE.md` §8),
   so this may not be resolvable on BSCD-FSL at all.
-* **The overfitting mechanism in §3.5 is a candidate, not a finding.** It predicts
-  things that can be checked — `full_ft` should improve on EuroSAT with fewer inner
-  steps, or more shots, or weight decay, and the crossover should move with support
-  set size — and none of that has been run. Until it is, "85.8M parameters on 25
-  images overfits" is a plausible story about a two-point pattern.
+* **The overfitting mechanism has passed one test of several.** §3.6 confirms the
+  inner-step prediction: `full_ft` is 1.40 worse at 20 steps than at 10 while
+  `attn_only_ft` improves monotonically to 20. Its other predictions — more shots,
+  weight decay, the crossover moving with support-set size — are unrun, and one
+  axis probed at three points is not a mechanism established. It is now a
+  hypothesis with evidence rather than a story.
 * **§3.3.1's inverted U has three points on its rising half and two on its
   falling half.** `ln_only` → `attn` → `mlp` → `full_ft` is suggestive of a smooth
   curve and is consistent with one, but four groups is not a capacity sweep. A real
