@@ -550,6 +550,29 @@ Explicitly, so none of this gets quoted as a result:
   `mlp` and `patch_embed` have one draw each, so every §3 row outside
   {`full_ft`, `attn`, `ln_only`, `frozen_proto`} is still single-draw. The band
   *orderings* among those four are not established.
+* **Runs are not reproducible, and the cause is not seeded away.** Two
+  `run_baselines.py` invocations with byte-identical configuration — same tuned lr,
+  same inner steps, same episode seed, same split seed, `--no-amp` — disagree:
+  `attn_only_ft` 85.21 against 84.67 and `full_ft` 84.71 against 84.01 at 5 steps,
+  with **85 of 100 episodes giving different per-episode accuracies**. Ruled out as
+  causes: task sampling (`EpisodicSampler` seeds per episode from numpy, so the
+  tasks are fixed) and stochastic regularisation (every dropout and stochastic-depth
+  rate in the adapted branch is 0, a train-mode forward consumes no global torch
+  RNG, and two consecutive train-mode forwards are bit-identical on CPU — all
+  verified). What is left is GPU floating-point nondeterminism in the backward pass,
+  amplified through 5–20 Adam steps whose updates are normalised. Nothing calls
+  `torch.use_deterministic_algorithms`.
+
+  **What follows.** Every *individual* accuracy in this document carries roughly 0.6
+  points of between-run noise on top of the episode-sample spread §3.4 measures. The
+  paired differences look much more stable (the 5-step gap moved 0.50 → 0.66 while
+  its two accuracies moved 0.55 and 0.69), which is a fourth reason to use the
+  paired test, but that is one comparison and not a measurement. The three-draw
+  margins in §3.2–§3.4 are unaffected in substance: each draw already carried this
+  noise, so the measured spreads are honest error bars, and 2.50 / 2.20 / 1.18 are
+  all large against 0.6. What this does kill is reading any single-draw difference
+  below about a point, and quoting an unpaired accuracy to two decimals as if it
+  were repeatable.
 * **No displacement or frontier numbers.** Not run. When they are, the code's
   notion of a "diagonal" correction has to be checked against LayerNorm affine
   rather than BatchNorm affine before any of it is trusted.
