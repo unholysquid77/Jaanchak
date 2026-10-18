@@ -224,9 +224,8 @@ rather than an artefact of grids that stopped too early.
 
 ### 2.5 The same table on EuroSAT, and the ceiling does **not** reproduce
 
-Same protocol, same partition, every group at its own tuned learning rate. Five of
-the six are now bracketed on both sides; `patch_embed_ft` peaks at the smallest step
-tried and is the one open edge (stage 2b extends it downward).
+Same protocol, same partition, every group at its own tuned learning rate, every
+peak bracketed on both sides.
 
 | group | % params | lr | val acc |
 |---|---|---|---|
@@ -236,7 +235,13 @@ tried and is the one open edge (stage 2b extends it downward).
 | `ln_only_ft` | 0.045 | 1e-2 | 84.32 ± 1.69 |
 | `full_ft` | 100.000 | 1e-5 | 84.29 ± 1.69 |
 | `ln_shift_ft` | 0.022 | 3e-2 | 83.79 ± 1.94 |
-| `patch_embed_ft` | 0.866 | 1e-6 | 80.13 ± 1.95 ← bottom edge |
+| `patch_embed_ft` | 0.866 | 1e-6 | 80.13 ± 1.95 |
+
+`patch_embed_ft` needed a downward extension, which closed it: **79.92 at both
+1e-8 and 1e-7**, identical to two decimals because at that step size nothing moves.
+So its 80.13 peak at 1e-6 is interior, and it is 0.21 points above doing nothing at
+all. Adapting the patch embedding on EuroSAT is not weak adaptation; it is no
+adaptation, and `frozen_proto` from stage 2b should land on roughly the same number.
 
 **`full_ft` is fourth of seven.** Three groups sit above it, including the
 19,200-parameter `ln_scale_ft` at 85.20. The whole six-group band spans 1.78 points
@@ -292,10 +297,6 @@ Explicitly, so none of this gets quoted as a result:
   episodes with `frozen_proto` as the floor bracket, and the §2.1 ceiling in
   particular needs it: the 3.12-point margin between `full_ft` and the top of the
   band does not clear the combined interval (±3.36) at this episode count.
-* **`patch_embed_ft` on EuroSAT is unbracketed.** It peaks at the smallest step
-  tried (1e-6) and declines monotonically above it, so its 80.13 is a bound. Stage
-  2b extends it downward; until then its row is the one number in §2.5 that could
-  move.
 * **§2.5's shift-magnitude claim rests on two datasets.** Two points do not
   establish a monotone relationship between shift magnitude and whether joint
   movement matters, and "headroom" here is a proxy for shift magnitude, not a

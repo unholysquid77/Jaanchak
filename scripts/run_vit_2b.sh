@@ -45,7 +45,13 @@ EURO_DATA="--dataset eurosat --fractions 0.2 0.1 0.7"
 # The full partition plus both brackets. frozen_proto is the floor (no gradient steps
 # at all) and full_ft the ceiling; without them a 0.6-point band across six groups
 # cannot be read, because nothing says how much of the headroom that band sits in.
-GROUPS="full_ft ln_only_ft ln_scale_ft ln_shift_ft attn_only_ft mlp_only_ft patch_embed_ft frozen_proto"
+#
+# NOT named GROUPS. `GROUPS` is a bash special variable holding the caller's group
+# IDs, and assigning to it is silently ignored -- `$GROUPS` then expands to the
+# primary gid. This script's first run passed `--baselines 1002` to run_baselines.py
+# and died on KeyError: '1002'. set -u cannot catch it, because the variable is
+# always set.
+BASELINE_GROUPS="full_ft ln_only_ft ln_scale_ft ln_shift_ft attn_only_ft mlp_only_ft patch_embed_ft frozen_proto"
 
 stage() { printf '\n========== %s  (%s) ==========\n' "$1" "$(date +%H:%M)"; }
 fail()  { printf '\n!!! ABORTING: %s\n' "$1"; exit 1; }
@@ -110,9 +116,17 @@ run_table() {
     local keep
     # shellcheck disable=SC2086
     keep=$($PY experiments/drop_edge_baselines.py "$edges" \
-               --baselines $GROUPS --k-shot "$SHOT") \
+               --baselines $BASELINE_GROUPS --k-shot "$SHOT") \
         || fail "$tag edge filter failed"
     [ -n "$keep" ] || fail "$tag: every baseline was dropped as grid-edge"
+    # Sanity check on the list itself, not just on it being non-empty. The GROUPS
+    # mishap produced a perfectly well-formed one-element list that happened to be
+    # a group id, and nothing downstream noticed until run_baselines.py raised a
+    # KeyError four minutes into loading the backbone.
+    case " $keep " in
+        *" full_ft "*) ;;
+        *) fail "$tag: baseline list does not contain full_ft -- got '$keep'" ;;
+    esac
 
     stage "$tag parameter-type table at $EPISODES episodes: $keep"
     # shellcheck disable=SC2086
