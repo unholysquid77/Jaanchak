@@ -149,6 +149,13 @@ decides it.
 
 ## 2. Stage 2a: the parameter-type partition
 
+> **Every accuracy in this section is at 50 episodes and exists to pick a learning
+> rate.** §3 re-measures the whole partition at 100 with both brackets, and on
+> EuroSAT it does not merely tighten this section's reading, it changes it. Read
+> §3 for the numbers; read this section for how the learning rates were settled
+> and which grids had to be extended.
+
+
 Every group at **its own** tuned learning rate, 50 episodes, every peak now
 bracketed on both sides. The partition is exact — LayerNorm + attention + MLP +
 patch-embedding = 85,798,656 parameters, each owned once, asserted by parameter name
@@ -288,38 +295,156 @@ even tuned apart.
 
 ---
 
-## 3. What is NOT claimed yet
+## 3. Stage 2b: the measured tables
+
+100 episodes, every group at its own merged best learning rate, validation split,
+both brackets present. No group was dropped as grid-edge — every peak in §2 is
+interior on the merged grid, so every row below is a tuned measurement rather than
+a bound.
+
+`frac_mod` is the fraction of backbone parameters an episode actually changed,
+reported per episode by `run_baselines.py`. It is an independent check that each
+selector opened what it was supposed to, and this project has twice shipped a
+baseline that silently selected the wrong set, so it is quoted rather than trusted.
+
+### 3.1 ISIC
+
+| group | lr | val acc | gain over frozen | frac_mod |
+|---|---|---|---|---|
+| **`full_ft`** | 1e-4 | **52.49 ± 1.50** | **+13.14** | 97.35% |
+| `attn_only_ft` | 3e-4 | 50.20 ± 1.62 | +10.85 | 32.74% |
+| `ln_shift_ft` | 1e-1 | 50.05 ± 1.72 | +10.70 | 0.0224% |
+| `mlp_only_ft` | 1e-4 | 50.01 ± 1.31 | +10.66 | 64.46% |
+| `ln_only_ft` | 1e-1 | 49.60 ± 1.76 | +10.25 | 0.0447% |
+| `ln_scale_ft` | 1e-1 | 49.28 ± 1.43 | +9.93 | 0.0223% |
+| `patch_embed_ft` | 1e-3 | 45.95 ± 1.50 | +6.60 | 0.8616% |
+| `frozen_proto` | — | 39.35 ± 1.24 | — | 0.0000% |
+
+`full_ft` is top, and **every single parameter type reaches 76–83% of its gain**
+(`ln_scale` 75.6%, `attn` 82.6%) — including the 19,200-parameter LayerNorm scale
+group, which is 0.022% of the backbone.
+
+**The margin shrank.** At 50 episodes `full_ft` sat 3.12 above the band's top
+against a combined ±3.36, which did not clear zero. At 100 it sits **2.29 above
+`attn` against a combined ±2.21** — clearing by 0.08, which is on the line, not
+settled. Both halves moved: `full_ft` 53.07 → 52.49 while the band drifted up
+(`attn` 49.65 → 50.20, `ln_shift` 49.92 → 50.05). Doubling the episode count
+narrowed the gap roughly as much as it narrowed the interval, so this is *still*
+not a settled comparison. Against the band's lower members it is clean
+(vs `ln_scale`, 3.21 against ±2.07).
+
+### 3.2 EuroSAT — `full_ft` is not just inside the band, it **loses**
+
+| group | lr | val acc | gain over frozen | vs `full_ft`'s gain | frac_mod |
+|---|---|---|---|---|---|
+| **`attn_only_ft`** | 1e-4 | **85.96 ± 1.06** | **+6.69** | **168%** | 32.33% |
+| `mlp_only_ft` | 1e-4 | 84.76 ± 1.29 | +5.49 | 138% | 64.57% |
+| `ln_only_ft` | 1e-2 | 84.75 ± 1.15 | +5.48 | 138% | 0.0443% |
+| `ln_scale_ft` | 3e-2 | 84.51 ± 1.35 | +5.24 | 132% | 0.0223% |
+| `full_ft` | 1e-5 | 83.24 ± 1.31 | +3.97 | 100% | 83.28% |
+| `ln_shift_ft` | 3e-2 | 82.92 ± 1.31 | +3.65 | 92% | 0.0223% |
+| `patch_embed_ft` | 1e-6 | 79.44 ± 1.44 | +0.17 | 4% | 0.3351% |
+| `frozen_proto` | — | 79.27 ± 1.42 | — | — | 0.0000% |
+
+`full_ft` is **fifth of seven**, and `attn_only_ft` beats it by **2.72 against a
+combined ±1.69** — clearing zero by 1.03. That is not a tie and not a plateau: on
+EuroSAT, adapting attention alone is *significantly better* than fine-tuning the
+whole backbone, with a third of the parameters. Four of the six single types beat
+`full_ft` outright.
+
+The 50-episode reading in §2.5 ("fourth of seven, nothing distinguishable from
+anything") was the weaker version of this. Tighter intervals did not flatten the
+table, they resolved it.
+
+`patch_embed_ft` lands 0.17 above `frozen_proto`, confirming §2.5 exactly: on
+EuroSAT, adapting the patch embedding is not weak adaptation, it is none. Its
+`frac_mod` of 0.3351% against ISIC's 0.8616% says the same thing mechanically —
+at 1e-6 most of its parameters do not move at float precision. On ISIC the same
+group reaches 50% of headroom, so the two datasets genuinely differ here.
+
+### 3.3 Attention against MLP, at 100 episodes
+
+Still indistinguishable on both, and the intervals are now tight enough for that to
+mean something:
+
+| | `attn` (33.0%) | `mlp` (66.0%) | difference | combined ±95% |
+|---|---|---|---|---|
+| ISIC | 50.20 ± 1.62 | 50.01 ± 1.31 | 0.19 | ±2.08 |
+| EuroSAT | 85.96 ± 1.06 | 84.76 ± 1.29 | 1.20 | ±1.67 |
+
+`mlp` has exactly twice `attn`'s parameters and neither comparison clears. On
+EuroSAT `attn` is nominally ahead by 1.20, which is the largest this split has
+looked, but it is still inside ±1.67 and `attn` is the smaller group — so if
+anything is there it points away from parameter count, not towards it.
+
+This is the comparison a ResNet cannot express, and the answer is that it does not
+matter which sublayer you move.
+
+### 3.4 What the two tables say together
+
+Headroom is now measured on this arm rather than carried over from the ResNet one:
+
+| | `frozen_proto` | best | headroom | `full_ft`'s rank | best single type vs `full_ft` |
+|---|---|---|---|---|---|
+| ISIC | 39.35 | 52.49 (`full_ft`) | **13.14** | 1 of 7 | 83% of its gain |
+| EuroSAT | 79.27 | 85.96 (`attn`) | **6.69** | 5 of 7 | **168%** of its gain |
+
+ISIC has roughly twice the headroom, and that is where joint movement across
+parameter types pays. Where there is half as much, it does not merely stop paying —
+it goes **negative**, and a single parameter type does better than all of them
+together.
+
+That sharpens §2.5's claim rather than restating it. The earlier version was "where
+there is little to gain, every group gets all of it." The measured version is:
+
+> **The value of adapting parameter types jointly scales with the size of the
+> shift, and under mild shift it is actively harmful relative to adapting one
+> type.**
+
+This also hands the mechanism question a candidate that §2.5 did not have.
+`full_ft` opens 85.8M parameters and takes 20 steps on 25 support images. Under
+strong shift there is enough signal to justify that capacity; under mild shift
+there is not, and it overfits. That is a testable story rather than a restatement
+of the data — and unlike `RESULTS_SUBSPACE.md` §6's dead mechanism it does not
+need a quantity that cannot be separated from depth.
+
+It is still two datasets, one draw each, with no seed spread on this arm.
+
+---
+
+## 4. What is NOT claimed yet
 
 Explicitly, so none of this gets quoted as a result:
 
-* **Every accuracy in §1 and §2 is at 50 episodes, the tuning count.** Nothing
-  here is a reported number. Stage 2b re-measures the whole partition at 100
-  episodes with `frozen_proto` as the floor bracket, and the §2.1 ceiling in
-  particular needs it: the 3.12-point margin between `full_ft` and the top of the
-  band does not clear the combined interval (±3.36) at this episode count.
-* **§2.5's shift-magnitude claim rests on two datasets.** Two points do not
+* **§3.1's ISIC ceiling is still not settled.** `full_ft` beats the best single
+  type by 2.29 against a combined ±2.21 — 0.08 past the interval. Doubling the
+  episodes narrowed the gap about as much as it narrowed the interval, so another
+  doubling is not obviously the fix; a seed spread matters more.
+* **§3.4's shift-magnitude claim rests on two datasets.** Two points do not
   establish a monotone relationship between shift magnitude and whether joint
-  movement matters, and "headroom" here is a proxy for shift magnitude, not a
-  measurement of it. ChestX, the third and largest shift, is unobtainable
-  (`RESULTS_SUBSPACE.md` §8), so this may not be resolvable on BSCD-FSL at all.
-* **§2.1's ceiling has no mechanism behind it.** "Gain comes from different
-  parameter types moving together" is the shape of the data, not something measured.
-  Nothing here separates it from an optimisation story (seven adapters tuned
-  separately, one tuned jointly) and the project has already had one mechanism die
-  for exactly that reason (`RESULTS_SUBSPACE.md` §6).
-* **§2.2's attention/MLP tie is one draw.** Two groups landing on the same accuracy
-  to four digits is a coincidence of integer counts, not a measurement of
-  equivalence; the claim that survives is "indistinguishable at ±2.3", and only on
-  ISIC.
+  movement helps or hurts, and headroom is a proxy for shift magnitude rather than
+  a measurement of it — now a measured proxy (13.14 against 6.69) but a proxy.
+  ChestX, the third and largest shift, is unobtainable (`RESULTS_SUBSPACE.md` §8),
+  so this may not be resolvable on BSCD-FSL at all.
+* **The overfitting mechanism in §3.4 is a candidate, not a finding.** It predicts
+  things that can be checked — `full_ft` should improve on EuroSAT with fewer inner
+  steps, or more shots, or weight decay, and the crossover should move with support
+  set size — and none of that has been run. Until it is, "85.8M parameters on 25
+  images overfits" is a plausible story about a two-point pattern.
+* **§3.2's result is one draw.** `attn_only_ft` beating `full_ft` by 2.72 ± 1.69 on
+  EuroSAT is the strongest claim in this document and the one most worth attacking.
+  It is also the one that most needs the seed spread below, because it is the claim
+  a reader will least expect.
 * **No ViT seed spread.** `RESULTS_SUBSPACE.md` §7 cost three draws to establish a
   ±1.1-point floor on the ResNet arm. Nothing equivalent exists here, so every
   margin in this document is being read against a within-run confidence interval
-  that may understate the real noise.
+  that may understate the real noise. This is now the highest-value missing
+  measurement: two of the three claims above turn on margins of 1–3 points.
 * **No displacement or frontier numbers.** Not run. When they are, the code's
   notion of a "diagonal" correction has to be checked against LayerNorm affine
   rather than BatchNorm affine before any of it is trusted.
 
-## 4. Standing cautions inherited from the ResNet arm
+## 5. Standing cautions inherited from the ResNet arm
 
 Three of the first four results in this project were single-draw artefacts, and
 `RESULTS_SUBSPACE.md` §7 establishes a ±1.1-point estimator noise floor on
