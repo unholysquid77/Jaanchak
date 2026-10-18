@@ -275,3 +275,95 @@ def test_last_layer_ft_is_the_last_block_not_the_trailing_norm(
     # A whole transformer block, not just a norm: attention and MLP must be in there.
     assert any(".attn." in n for n in opened)
     assert any(".mlp." in n for n in opened)
+
+
+# -- the capacity sweep -------------------------------------------------------
+#
+# These exist because the sweep's whole point is that n is proportional to the
+# adapted fraction. A selector that opened the wrong blocks, or silently opened all
+# of them, would still produce a smooth-looking curve -- and a smooth curve is
+# exactly what the sweep is looking for, so the failure would confirm the
+# hypothesis rather than announce itself.
+
+
+def test_attn_last_n_opens_exactly_the_last_n_blocks(backbone: TappedBackbone) -> None:
+    from arc.train.episodic import select_attn_last_n
+
+    for n in (1, 2, 3, 4, 6, 12):
+        select_attn_last_n(n)(backbone)
+        opened = _names(backbone)
+        assert opened, f"n={n} selected nothing"
+        blocks = {int(name.split(".")[0].removeprefix("block_")) for name in opened}
+        assert blocks == set(range(12 - n, 12)), f"n={n} opened blocks {sorted(blocks)}"
+        assert all(".attn." in f".{name}" for name in opened), sorted(opened)[:4]
+
+
+def test_attn_last_n_is_linear_in_n(backbone: TappedBackbone) -> None:
+    """Every block holds the same number of attention parameters, so the count must
+    be exactly proportional. If it is not, the sweep's x-axis is wrong."""
+    from arc.train.episodic import select_attn_last_n
+
+    select_attn_last_n(1)(backbone)
+    per_block = _count(backbone)
+    assert per_block > 0
+    for n in (2, 3, 4, 6, 8, 12):
+        select_attn_last_n(n)(backbone)
+        assert _count(backbone) == n * per_block, n
+
+
+def test_attn_last_12_is_exactly_select_attn(backbone: TappedBackbone) -> None:
+    """The sweep's right-hand endpoint must be the measurement it is extending, not
+    a near-miss. Compared on names, not counts."""
+    from arc.train.episodic import select_attn_last_n
+
+    select_attn(backbone)
+    whole = _names(backbone)
+    select_attn_last_n(12)(backbone)
+    assert _names(backbone) == whole
+
+
+def test_attn_last_n_nests(backbone: TappedBackbone) -> None:
+    """Each n must be a superset of the one below; a suffix sweep that is not nested
+    is varying which parameters as well as how many."""
+    from arc.train.episodic import select_attn_last_n
+
+    previous: set[str] = set()
+    for n in (1, 2, 3, 4, 6, 8, 12):
+        select_attn_last_n(n)(backbone)
+        current = _names(backbone)
+        assert previous < current, f"n={n} is not a strict superset of the previous"
+        previous = current
+
+
+def test_attn_last_n_refuses_more_blocks_than_exist(backbone: TappedBackbone) -> None:
+    """Asking for 24 of 12 must raise, not quietly return all 12 -- that would report
+    a 24-block number that is really the 12-block one."""
+    from arc.train.episodic import select_attn_last_n
+
+    with pytest.raises(ValueError, match="at least 24 blocks"):
+        select_attn_last_n(24)(backbone)
+    with pytest.raises(ValueError, match="at least 1"):
+        select_attn_last_n(0)
+
+
+def test_attn_last_n_baselines_are_registered_and_distinct(backbone: TappedBackbone) -> None:
+    from arc.train.baselines import BASELINES
+
+    footprints = {}
+    for n in (1, 2, 3, 4, 6, 8):
+        key = f"attn_last{n}_ft"
+        assert key in BASELINES, key
+        _, select, _ = BASELINES[key].build(backbone, 10)
+        select(backbone)
+        footprints[key] = tuple(sorted(_names(backbone)))
+    assert len(set(footprints.values())) == len(footprints)
+
+    # n=12 is not registered: it is attn_only_ft under another name, and registering
+    # both is how a table quotes one measurement twice as a replication.
+    assert "attn_last12_ft" not in BASELINES
+
+    # The description must agree with what the selector opens. A loop-registered
+    # family makes a mismatch unlikely; asserting it makes it impossible.
+    for n in (1, 2, 3, 4, 6, 8):
+        spec = BASELINES[f"attn_last{n}_ft"]
+        assert f"last {n} transformer block" in spec.description, spec.description

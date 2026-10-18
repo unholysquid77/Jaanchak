@@ -26,6 +26,7 @@ import torch
 
 from arc.backbones.tapped import TappedBackbone
 from arc.train.episodic import (
+    select_attn_last_n,
     ParamSelector,
     StaticController,
     select_all,
@@ -136,6 +137,19 @@ def _attn_only_ft(backbone: TappedBackbone, inner_steps: int):
     return StaticController(_ones(backbone)), select_attn, inner_steps
 
 
+# The capacity sweep. RESULTS_VIT.md section 3.3.1 orders four parameter TYPES by
+# size and finds an inverted U peaking around a third of the backbone, but those four
+# differ in more than size, so the ordering cannot separate "how many parameters" from
+# "which parameters". These vary capacity within ONE type -- attention, in a growing
+# suffix of the block stack -- so attn_last12_ft IS attn_only_ft and the sweep inherits
+# the existing measurement as its endpoint instead of re-running it.
+def _attn_last_n_ft(n: int):
+    def build(backbone: TappedBackbone, inner_steps: int):
+        return StaticController(_ones(backbone)), select_attn_last_n(n), inner_steps
+
+    return build
+
+
 def _mlp_only_ft(backbone: TappedBackbone, inner_steps: int):
     return StaticController(_ones(backbone)), select_mlp, inner_steps
 
@@ -210,3 +224,23 @@ BASELINES: dict[str, BaselineSpec] = {
         _patch_embed_ft, arch_family="vit"
     ),
 }
+
+# Registered in a loop rather than written out: the only thing that varies is n, and a
+# hand-written block invites one entry whose description says 4 while its selector
+# opens 6.
+#
+# n = 12 is deliberately NOT registered. It would select exactly what attn_only_ft
+# selects, and test_every_vit_baseline_is_a_distinct_experiment caught it on the first
+# run -- correctly, since two names for one experiment is how a table ends up quoting
+# the same measurement twice as if it were a replication. The sweep uses attn_only_ft
+# itself as its right-hand endpoint, which is the same experiment under the name it
+# already has. select_attn_last_n(12) still works and is still asserted equal to
+# select_attn, because that is a property of the selector worth pinning down.
+for _n in (1, 2, 3, 4, 6, 8):
+    BASELINES[f"attn_last{_n}_ft"] = BaselineSpec(
+        f"attn_last{_n}_ft",
+        f"Adapt attention in the last {_n} transformer block{'s' if _n > 1 else ''} only",
+        _attn_last_n_ft(_n),
+        arch_family="vit",
+    )
+del _n

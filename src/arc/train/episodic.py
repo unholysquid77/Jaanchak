@@ -20,6 +20,8 @@ images.
 
 from __future__ import annotations
 
+import re
+
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Mapping, Protocol
@@ -247,6 +249,63 @@ def select_attn(backbone: TappedBackbone) -> None:
     for name, module in backbone.adapted.named_modules():
         if isinstance(module, torch.nn.Linear) and ".attn." in f".{name}.":
             module.requires_grad_(True)
+
+
+_BLOCK_RE = re.compile(r"^block_(\d+)\.")
+
+
+def _n_blocks(backbone: TappedBackbone) -> int:
+    return sum(1 for n in backbone.unit_names if n.startswith("block_"))
+
+
+def select_attn_last_n(n: int) -> ParamSelector:
+    """Attention in the LAST ``n`` transformer blocks only.
+
+    Why this exists. :func:`select_attn` against :func:`select_mlp` varies capacity by
+    changing *which* parameters are adapted, so the two differ in more than size and
+    an ordering between them cannot separate "how many" from "which". This varies
+    capacity *within* one type: the same kind of parameter, in a growing suffix of
+    the network. ``n = n_blocks`` is exactly :func:`select_attn`, so the sweep has the
+    existing measurement as its right-hand endpoint rather than a fresh one.
+
+    A suffix rather than an arbitrary subset because depth is the one ordering a
+    transformer block stack actually has, and because the alternative -- a prefix --
+    adapts layers whose outputs every later layer then re-processes, which confounds
+    capacity with how far the change propagates.
+    """
+    if n < 1:
+        raise ValueError(f"n must be at least 1, got {n}")
+
+    def selector(backbone: TappedBackbone) -> None:
+        _require_family(backbone, "vit", f"select_attn_last_{n}")
+        total = _n_blocks(backbone)
+        if n > total:
+            raise ValueError(
+                f"select_attn_last_{n} needs at least {n} blocks but the backbone has "
+                f"{total}; the selector would silently behave like select_attn."
+            )
+        first = total - n
+        backbone.adapted.requires_grad_(False)
+        for name, module in backbone.adapted.named_modules():
+            if not isinstance(module, torch.nn.Linear):
+                continue
+            if ".attn." not in f".{name}.":
+                continue
+            match = _BLOCK_RE.match(name)
+            # Attention lives only inside blocks; anything matching ".attn." outside
+            # one would mean the unit split changed shape, so refuse rather than
+            # guess which side of the cut it belongs on.
+            if match is None:
+                raise RuntimeError(
+                    f"attention module {name!r} is not inside a block_* unit; "
+                    "select_attn_last_n cannot place it by depth"
+                )
+            if int(match.group(1)) >= first:
+                module.requires_grad_(True)
+
+    selector.__name__ = f"select_attn_last_{n}"
+    selector.__doc__ = f"Attention in the last {n} transformer blocks only."
+    return selector
 
 
 def select_mlp(backbone: TappedBackbone) -> None:
