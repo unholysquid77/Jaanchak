@@ -142,6 +142,15 @@ def main() -> None:
     p.add_argument("--seeds", type=int, nargs="+", default=[0],
                    help="episode-sampling seeds; results are reported per seed")
     p.add_argument("--baselines", nargs="+", default=list(BASELINES))
+    # Which split the accuracies come from. Defaults to validation, NOT test: every
+    # measurement this project makes -- learning rates, parameter-type tables,
+    # frontiers -- is a validation measurement, and the one script that reports an
+    # accuracy used to hardcode splits["test"], so any 100-episode run silently
+    # burned the test set. Reading test is now an explicit act: pass --split test
+    # once, for the final table, and never for anything that informs a decision.
+    p.add_argument("--split", default="val", choices=["val", "test"],
+                   help="split to evaluate on (default val; --split test is the "
+                        "final report only)")
     p.add_argument("--out", default="results")
     p.add_argument("--skip-existing", action="store_true",
                    help="skip (baseline, k-shot, seed) cells whose JSON already "
@@ -164,6 +173,14 @@ def main() -> None:
     )
     for name, s in splits.items():
         log.info("split %-5s  %6d images  %2d classes", name, len(s.indices), len(s.classes))
+    if args.split == "test":
+        log.warning(
+            "EVALUATING ON TEST. Everything derived from this is a reported number, "
+            "not a tuning signal -- do not let it feed back into a grid, a baseline "
+            "choice or a stage decision."
+        )
+    else:
+        log.info("evaluating on the %s split", args.split)
 
     log.info("building backbone %s", args.arch)
     backbone = TappedBackbone(arch=args.arch, pretrained=True)
@@ -196,7 +213,7 @@ def main() -> None:
         for k_shot in args.k_shot:
             sampler = EpisodicSampler(
                 source,
-                splits["test"],
+                splits[args.split],
                 n_way=args.n_way,
                 k_shot=k_shot,
                 n_query=args.n_query,

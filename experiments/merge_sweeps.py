@@ -13,6 +13,13 @@ validation accuracy.
 Re-checks the grid-edge condition on the *merged* grid, since a config can peak at the
 edge of one sweep while the union has an interior optimum -- or still be truncated after
 merging, which the first sweep could not have told us.
+
+Both edges are reported, not just the top. A peak at the BOTTOM of the grid is the
+same defect and it has already happened: patch_embed_ft on EuroSAT peaked at 1e-6,
+the smallest value tried, declining monotonically above it. That usually means the
+group does nothing useful and the best step size is the one closest to frozen -- but
+"usually means" is not a measurement, and an unflagged lower edge reads as a settled
+optimum in the table.
 """
 
 from __future__ import annotations
@@ -28,6 +35,11 @@ def main() -> None:
     p.add_argument("dirs", nargs="+", help="sweep output directories")
     p.add_argument("--dataset", default="eurosat")
     p.add_argument("--out", default=None)
+    p.add_argument("--edges-out", default=None, metavar="PATH",
+                   help="also write the edge report as JSON: a list of "
+                        "{baseline, k_shot, lr, side}. Lets a driver script decide "
+                        "mechanically which baselines are tuned well enough to "
+                        "report, instead of a human reading the warning above.")
     args = p.parse_args()
 
     rows: list[dict] = []
@@ -56,23 +68,28 @@ def main() -> None:
         if prev is None or r["accuracy"] > prev["accuracy"]:
             best[key][k] = r
 
-    truncated = []
+    truncated: list[tuple[str, str, float, str]] = []
     print(f"{'baseline':<22}{'shot':>5}{'lr':>9}{'steps':>7}{'val acc':>10}")
     for key in sorted(best):
         for k in sorted(best[key], key=int):
             r = best[key][k]
             grid = sorted(grids[(key, k)])
             edge = ""
-            if r["lr"] == grid[-1] and len(grid) > 1:
-                edge, _ = " <- at grid edge", truncated.append((key, k, r["lr"]))
+            if len(grid) > 1 and r["lr"] == grid[-1]:
+                edge = " <- at grid edge (top)"
+                truncated.append((key, k, r["lr"], "top"))
+            elif len(grid) > 1 and r["lr"] == grid[0]:
+                edge = " <- at grid edge (bottom)"
+                truncated.append((key, k, r["lr"], "bottom"))
             print(f"{key:<22}{k:>5}{r['lr']:>9.0e}{r['inner_steps']:>7}"
                   f"{r['accuracy']*100:>9.2f}%{edge}")
 
     if truncated:
-        print("\nWARNING: these peaked at the top of the merged grid and are still")
-        print("truncated -- their reported setting is a lower bound, not an optimum:")
-        for key, k, lr in truncated:
-            print(f"  {key} {k}-shot (lr={lr:.0e})")
+        print("\nWARNING: these peaked at an edge of the merged grid and are still")
+        print("truncated -- their reported setting is a bound, not an optimum:")
+        for key, k, lr, side in truncated:
+            direction = "extend upward" if side == "top" else "extend downward"
+            print(f"  {key} {k}-shot (lr={lr:.0e}, {side} edge -- {direction})")
     else:
         print("\nAll baselines have an interior optimum on the merged grid.")
 
@@ -80,6 +97,14 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(best, indent=2))
     print(f"\nwrote {out}")
+
+    if args.edges_out:
+        edges = Path(args.edges_out)
+        edges.parent.mkdir(parents=True, exist_ok=True)
+        edges.write_text(json.dumps(
+            [{"baseline": b, "k_shot": int(k), "lr": lr, "side": side}
+             for b, k, lr, side in truncated], indent=2))
+        print(f"wrote {edges}")
 
 
 if __name__ == "__main__":
