@@ -329,9 +329,13 @@ against a combined ±3.36, which did not clear zero. At 100 it sits **2.29 above
 `attn` against a combined ±2.21** — clearing by 0.08, which is on the line, not
 settled. Both halves moved: `full_ft` 53.07 → 52.49 while the band drifted up
 (`attn` 49.65 → 50.20, `ln_shift` 49.92 → 50.05). Doubling the episode count
-narrowed the gap roughly as much as it narrowed the interval, so this is *still*
-not a settled comparison. Against the band's lower members it is clean
-(vs `ln_scale`, 3.21 against ±2.07).
+narrowed the gap roughly as much as it narrowed the interval.
+
+> **Superseded by §3.4.** The combined-interval test used in this paragraph treats
+> the two accuracies as independent estimates. They share their episodes, so the
+> correct test is the paired per-seed difference — and across three draws
+> `full_ft` − `attn` is +2.29 / +2.07 / +2.25, mean **+2.20 ± 0.30**. The
+> comparison is settled; it was the statistic that was wrong, not the data.
 
 ### 3.2 EuroSAT — `full_ft` is not just inside the band, it **loses**
 
@@ -346,8 +350,10 @@ not a settled comparison. Against the band's lower members it is clean
 | `patch_embed_ft` | 1e-6 | 79.44 ± 1.44 | +0.17 | 4% | 0.3351% |
 | `frozen_proto` | — | 79.27 ± 1.42 | — | — | 0.0000% |
 
-`full_ft` is **fifth of seven**, and `attn_only_ft` beats it by **2.72 against a
-combined ±1.69** — clearing zero by 1.03. That is not a tie and not a plateau: on
+`full_ft` is **fifth of seven**, and `attn_only_ft` beats it by **2.72** — a margin
+that §3.4 confirms on all three draws (mean **+2.50 ± 0.65**; the combined-interval
+figure of ±1.69 quoted here is the wrong test for paired data and understates it).
+That is not a tie and not a plateau: on
 EuroSAT, adapting attention alone is *significantly better* than fine-tuning the
 whole backbone, with a third of the parameters. Four of the six single types beat
 `full_ft` outright.
@@ -372,22 +378,96 @@ mean something:
 | ISIC | 50.20 ± 1.62 | 50.01 ± 1.31 | 0.19 | ±2.08 |
 | EuroSAT | 85.96 ± 1.06 | 84.76 ± 1.29 | 1.20 | ±1.67 |
 
-`mlp` has exactly twice `attn`'s parameters and neither comparison clears. On
-EuroSAT `attn` is nominally ahead by 1.20, which is the largest this split has
-looked, but it is still inside ±1.67 and `attn` is the smaller group — so if
-anything is there it points away from parameter count, not towards it.
+`mlp` has exactly twice `attn`'s parameters and neither comparison clears the
+combined interval. On EuroSAT `attn` is nominally ahead by 1.20, and `attn` is the
+smaller group — so if anything is there it points away from parameter count, not
+towards it.
 
-This is the comparison a ResNet cannot express, and the answer is that it does not
-matter which sublayer you move.
+> **This section is now the weakest in §3, and §3.4 is why.** The combined-interval
+> test above is the wrong one for paired data. Applied to `attn` − `full_ft` it
+> understated a real margin by a factor of ~2.6; applied here, EuroSAT's nominal
+> 1.20 could well be a real difference rather than noise. The seed spread covered
+> `full_ft`, `attn`, `ln_only` and `frozen_proto` — **not `mlp`** — so there is no
+> paired spread to settle it with. Until `mlp` gets its own draws, "it does not
+> matter which sublayer you move" is **not** supported on EuroSAT. It still looks
+> right on ISIC, where the difference is 0.19.
 
-### 3.4 What the two tables say together
+This is the comparison a ResNet cannot express, which makes leaving it unresolved
+the most annoying gap in the arm.
+
+### 3.4 Three draws: both claims survive, and the test I was using was the wrong one
+
+Seeds 1 and 2 of `full_ft`, `attn_only_ft`, `ln_only_ft` and `frozen_proto`, at the
+learning rates tuned on seed 0, 100 episodes, identical split. Only the episode
+sample moves. `scripts/run_vit_seeds.sh`.
+
+| | seed 0 | seed 1 | seed 2 | mean | sd | range |
+|---|---|---|---|---|---|---|
+| **EuroSAT** | | | | | | |
+| `attn_only_ft` | 85.96 | 85.41 | 85.32 | **85.56** | 0.35 | 0.64 |
+| `ln_only_ft` | 84.75 | 83.76 | 84.03 | 84.18 | 0.51 | 0.99 |
+| `full_ft` | 83.24 | 82.85 | 83.11 | 83.07 | 0.20 | 0.39 |
+| `frozen_proto` | 79.27 | 78.93 | 79.45 | 79.22 | 0.26 | 0.52 |
+| **ISIC** | | | | | | |
+| `full_ft` | 52.49 | 51.15 | 50.85 | **51.50** | 0.87 | 1.64 |
+| `attn_only_ft` | 50.20 | 49.08 | 48.60 | 49.29 | 0.82 | 1.60 |
+| `ln_only_ft` | 49.60 | 48.48 | 48.64 | 48.91 | 0.61 | 1.12 |
+| `frozen_proto` | 39.35 | 37.44 | 37.99 | 38.26 | 0.98 | 1.91 |
+
+**Both live claims hold on every single draw:**
+
+| paired difference | seed 0 | seed 1 | seed 2 | mean | sd | 95% CI (n=3) |
+|---|---|---|---|---|---|---|
+| EuroSAT `attn` − `full_ft` | +2.72 | +2.56 | +2.21 | **+2.50** | 0.26 | [+1.85, +3.15] |
+| ISIC `full_ft` − `attn` | +2.29 | +2.07 | +2.25 | **+2.20** | 0.12 | [+1.90, +2.50] |
+
+Three for three in both directions, with margins roughly ten times their
+across-draw standard deviation. The ISIC comparison that looked marginal in §3.1 —
+2.29 clearing a combined ±2.21 by 0.08 — is not marginal at all.
+
+**And that is the methodological point, which is a correction to my own test.** I
+had been comparing two baselines by combining their within-run intervals in
+quadrature, √(ci₁² + ci₂²). That assumes the two accuracies are independent
+estimates. They are not. `EpisodicSampler` seeds per-episode rather than
+per-sampler, so within a seed **every baseline is evaluated on literally the same
+episodes** — the docstring says so and it is why the class was written that way.
+Episode difficulty is shared, so it cancels in the difference. The paired
+difference's spread (sd 0.12–0.26) is three to seven times tighter than either
+accuracy's own spread (sd 0.20–0.98), exactly as pairing predicts.
+
+So the quadrature test was not merely conservative, it was answering a question
+nobody asked: "could these two numbers have come from independent runs of different
+things?" The question that matters is "does A beat B on the same tasks?", and the
+per-seed difference answers it directly. Every margin in §3 compared this way is
+stronger than §3.1 and §3.2 state, and §3.1's "on the line, not settled" was an
+artefact of the wrong statistic rather than of thin data.
+
+**What this does *not* license.** The across-draw spread of a single accuracy is
+real and is not small on ISIC — `frozen_proto` moves 1.91 points across three draws
+— so any *unpaired* comparison, such as a number quoted against one from a different
+run or a different paper, still needs that spread. The headroom figures are
+unpaired in exactly that way, and they move: ISIC 13.14 → **13.24**, EuroSAT 6.69 →
+**6.34**, with `attn` at **165%** of `full_ft`'s gain rather than 168%. §3.5's
+framing is unchanged by that, which is the point of checking.
+
+One expectation was wrong and worth recording. I ran this because
+`RESULTS_SUBSPACE.md` §7 found a believed ±0.56 floor was really ±1.1 — the
+within-run interval understating true spread by 2×. That happened to a quantity
+derived from an *extracted displacement*, and it does not transfer to episodic
+accuracy: here the across-draw sd of 0.2–1.0 sits comfortably inside the within-run
+±1.0–1.8. The lesson from §7 was right to act on and wrong about which direction
+the error would come from.
+
+### 3.5 What the two tables say together
 
 Headroom is now measured on this arm rather than carried over from the ResNet one:
 
+Means over the three draws of §3.4, since these are unpaired quantities:
+
 | | `frozen_proto` | best | headroom | `full_ft`'s rank | best single type vs `full_ft` |
 |---|---|---|---|---|---|
-| ISIC | 39.35 | 52.49 (`full_ft`) | **13.14** | 1 of 7 | 83% of its gain |
-| EuroSAT | 79.27 | 85.96 (`attn`) | **6.69** | 5 of 7 | **168%** of its gain |
+| ISIC | 38.26 | 51.50 (`full_ft`) | **13.24** | 1 of 7 | 83% of its gain |
+| EuroSAT | 79.22 | 85.56 (`attn`) | **6.34** | 5 of 7 | **165%** of its gain |
 
 ISIC has roughly twice the headroom, and that is where joint movement across
 parameter types pays. Where there is half as much, it does not merely stop paying —
@@ -416,30 +496,32 @@ It is still two datasets, one draw each, with no seed spread on this arm.
 
 Explicitly, so none of this gets quoted as a result:
 
-* **§3.1's ISIC ceiling is still not settled.** `full_ft` beats the best single
-  type by 2.29 against a combined ±2.21 — 0.08 past the interval. Doubling the
-  episodes narrowed the gap about as much as it narrowed the interval, so another
-  doubling is not obviously the fix; a seed spread matters more.
-* **§3.4's shift-magnitude claim rests on two datasets.** Two points do not
+* **Both headline margins now rest on three draws, which is the floor, not a
+  luxury.** §3.4 settles their *direction* decisively (every draw, both datasets).
+  It does not make three draws many: `frozen_proto` on ISIC moved 1.91 points
+  across them, so anything quoted unpaired — the headroom figures, anything
+  compared against another paper — carries that spread.
+* **§3.5's shift-magnitude claim rests on two datasets.** Two points do not
   establish a monotone relationship between shift magnitude and whether joint
   movement helps or hurts, and headroom is a proxy for shift magnitude rather than
-  a measurement of it — now a measured proxy (13.14 against 6.69) but a proxy.
+  a measurement of it — now a measured proxy (13.24 against 6.34, three draws) but
+  a proxy.
   ChestX, the third and largest shift, is unobtainable (`RESULTS_SUBSPACE.md` §8),
   so this may not be resolvable on BSCD-FSL at all.
-* **The overfitting mechanism in §3.4 is a candidate, not a finding.** It predicts
+* **The overfitting mechanism in §3.5 is a candidate, not a finding.** It predicts
   things that can be checked — `full_ft` should improve on EuroSAT with fewer inner
   steps, or more shots, or weight decay, and the crossover should move with support
   set size — and none of that has been run. Until it is, "85.8M parameters on 25
   images overfits" is a plausible story about a two-point pattern.
-* **§3.2's result is one draw.** `attn_only_ft` beating `full_ft` by 2.72 ± 1.69 on
-  EuroSAT is the strongest claim in this document and the one most worth attacking.
-  It is also the one that most needs the seed spread below, because it is the claim
-  a reader will least expect.
-* **No ViT seed spread.** `RESULTS_SUBSPACE.md` §7 cost three draws to establish a
-  ±1.1-point floor on the ResNet arm. Nothing equivalent exists here, so every
-  margin in this document is being read against a within-run confidence interval
-  that may understate the real noise. This is now the highest-value missing
-  measurement: two of the three claims above turn on margins of 1–3 points.
+* **§3.3's attention/MLP tie is not established on EuroSAT.** The seed spread did
+  not include `mlp`, so the nominal 1.20-point gap has no paired spread to be read
+  against, and §3.4 showed the unpaired test understating a real margin by ~2.6×.
+  Two more draws of `mlp_only_ft` on both datasets would settle it; until then the
+  tie stands only on ISIC.
+* **The seed spread covers four baselines, not eight.** `ln_scale`, `ln_shift`,
+  `mlp` and `patch_embed` have one draw each, so every §3 row outside
+  {`full_ft`, `attn`, `ln_only`, `frozen_proto`} is still single-draw. The band
+  *orderings* among those four are not established.
 * **No displacement or frontier numbers.** Not run. When they are, the code's
   notion of a "diagonal" correction has to be checked against LayerNorm affine
   rather than BatchNorm affine before any of it is trusted.
