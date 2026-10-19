@@ -19,6 +19,12 @@ over the ResNet one where they disagree:
   BatchNorm confound that every ResNet number carries does not exist on a ViT.
 * **Attention and MLP are separable.** A ResNet cannot express that split at all,
   so it is the one genuinely new question rather than a port.
+* **Depth is a clean axis.** Twelve blocks, identical in shape and parameter count,
+  so "adapt block *i* and nothing else" varies position with size held exactly
+  fixed. A ResNet's stages differ in width, depth and resolution, so the same
+  question there cannot be asked without confounding position with size. §3.3.2
+  turns out to be where the largest effect on this arm lives, and it is an
+  experiment the ResNet arm structurally could not run.
 
 ---
 
@@ -368,14 +374,47 @@ EuroSAT, adapting the patch embedding is not weak adaptation, it is none. Its
 at 1e-6 most of its parameters do not move at float precision. On ISIC the same
 group reaches 50% of headroom, so the two datasets genuinely differ here.
 
-### 3.3 Attention against MLP: not a tie, and attention wins
+### 3.3 Where you adapt beats which parameters you adapt
+
+This section used to be called "Attention against MLP". That comparison is still
+here and still holds, but it is no longer the finding — it is one coarse slice
+through a bigger effect, and the slice averages the effect away.
+
+The finding is this. Take five interventions that are *identical in size and in
+parameter type* — attention in exactly one transformer block, 2.75% of the backbone,
+2.4M parameters — and vary only **which** block. On EuroSAT they span
+
+> **78.80 at block 0 to at least 88.24 at block 8: a range of ≥9.4 points.**
+
+For comparison, the entire parameter-*type* axis — patch-embed, LayerNorm,
+attention, MLP, everything — spans 6.5 points, and the headline `attn` − `mlp` gap
+inside it is 1.18. **Depth is a larger axis than type, by a factor of about eight
+against the type comparison and still clearly larger than the whole type range.**
+Every number that follows in §3.3.1 and §3.3.3 is a quantity averaged over depth,
+and §3.3.2 is why that averaging is the thing to be suspicious of.
+
+§3.3.4 records three readings of this data that I published and then retracted. They
+are kept because the sequence is informative about the failure mode, not because the
+earlier readings are live.
+
+**A note on the test used in this section.** §3.4 establishes that the valid test
+for a multi-draw comparison is the per-seed difference, never within-run intervals
+combined in quadrature. §3.3.2 and §3.3.3 are **one draw each** — there is no
+per-seed difference to take. For those I report the *per-episode paired* difference
+instead (same seed, hence literally the same 100 episodes, so the pairing is exact),
+which is the right test for "did these two differ on these episodes" but does **not**
+cover run-to-run nondeterminism. §4 records that floor at ~0.6 points between
+byte-identical reruns. So a single-draw gap is only claimed here when it clears
+*both* its own paired interval and that 0.6 floor with room. Gaps between those two
+bars are written as suggestive and nothing more.
+
+### 3.3.1 The type partition: attention beats MLP, with half the parameters
 
 This is the comparison a ResNet cannot express — it has no attention — so it is the
 one genuinely new question on this arm rather than a port. `mlp` has exactly twice
 `attn`'s parameters (66.0% of the backbone against 33.0%).
 
-Three draws each, paired per seed, because §3.4 establishes that is the only valid
-test here:
+Three draws each, paired per seed, per §3.4:
 
 | | seed 0 | seed 1 | seed 2 | mean | sd | 95% CI (n=3) |
 |---|---|---|---|---|---|---|
@@ -385,106 +424,173 @@ test here:
 **On EuroSAT attention beats MLP, with half the parameters.** Every draw positive,
 interval well clear of zero. On ISIC the two are indistinguishable.
 
-**This retracts what an earlier version of this section claimed.** It read "the
-answer is that it does not matter which sublayer you move", on the strength of
-combining the two within-run intervals in quadrature — the test §3.4 shows is wrong
-for paired data, and which understated this margin by about 4×. The nominal gap was
-visible then (1.20 at seed 0) and was dismissed as noise. It is not noise.
+The whole type axis on EuroSAT, three-draw means where available:
 
-### 3.3.1 Ordering the parameter TYPES by size — and why this reading was wrong
-
-Putting the EuroSAT three-draw means in order of parameter count makes a shape:
-
-| group | % of backbone | EuroSAT (3-draw mean) |
+| group | % of backbone | EuroSAT |
 |---|---|---|
 | `frozen_proto` | 0 | 79.22 |
+| `patch_embed_ft` | 0.87 | 79.44 (1 draw) |
 | `ln_only_ft` | 0.045 | 84.18 |
-| **`attn_only_ft`** | **33.0** | **85.56** |
 | `mlp_only_ft` | 66.0 | 84.38 |
+| **`attn_only_ft`** | **33.0** | **85.56** |
 | `full_ft` | 100 | 83.07 |
 
-Not monotone in either direction: nothing → 0.045% buys 4.96 points, 0.045% → 33%
-buys 1.38 more, 33% → 100% **loses** 2.49. An earlier version of this section read
-that as an inverted U in *capacity*, peaking around a third of the backbone.
+Two things to take from it, and only two. Attention is the best type; and 0.045% of
+the backbone (LayerNorm affine) already gets within 1.4 points of the best, so
+whatever the useful adaptation is, it is *small*. The ordering is **not** a capacity
+curve — see §3.3.4, reading (b).
 
-> **That reading is retracted; §3.3.2 measured it and it does not hold.** Varying
-> capacity *within* attention — the same parameter type, in 1 to 12 blocks — gives a
-> flat line from 2.75% of the backbone upward, with no peak at 33% and no climb to
-> reach it. The apparent optimum here was an artefact of 33% being the smallest
-> non-trivial point a type-based comparison can offer: the next point down is
-> LayerNorm at 0.045%, and there is nothing in between to show that the curve had
-> already levelled off long before 33%.
->
-> The decline on the right-hand side is real, but it is not about size either. See
-> §3.3.2 for what it is actually about.
+### 3.3.2 Position: the dominant axis
 
-### 3.3.2 Capacity within attention: flat from one block upward
+`select_attn_block(i)` adapts attention in block *i* alone. The tests in
+`tests/test_selectors_vit.py` assert that the parameter count is identical at every
+depth — load-bearing here, because otherwise an accuracy difference could be about
+size rather than position — and that `select_attn_block(11)` is by name the same
+selector as `select_attn_last_n(1)`, so the n=1 row of §3.3.3 *is* block 11.
+
+EuroSAT, seed 0, 100 episodes, 20 inner steps, each block at its own tuned learning
+rate. `scripts/run_vit_position.sh`.
+
+| block | lr | EuroSAT | frac_mod |
+|---|---|---|---|
+| 0 | 3e-5 **(bottom grid edge)** | 78.80 | 2.636 |
+| 2 | 3e-4 | 78.87 | 2.732 |
+| 5 | 3e-4 | 82.04 | 2.736 |
+| **8** | 1e-3 **(TOP grid edge — a bound)** | **≥88.24** | 2.749 |
+| 11 | 3e-4 | 86.51 | 2.743 |
+| — `frozen_proto` | — | 79.27 | 0.000 |
+| — `full_ft` | 1e-5 | 83.24 | 83.279 |
+
+`frac_mod` confirms the sizes match to within a tenth of a point across all five
+rows; block 0 reads slightly low because at 3e-5 a few weights do not move far
+enough to change their float, which is itself a hint that its grid is mispitched.
+
+Per-episode paired differences, all on the same 100 episodes:
+
+| comparison | difference | clears 0.6 floor? |
+|---|---|---|
+| block 8 − `frozen_proto` | **+8.97 ± 1.15** | yes |
+| block 8 − `full_ft` | **+5.00 ± 1.03** | yes |
+| block 11 − block 5 | +4.47 ± 1.29 | yes |
+| block 5 − block 2 | +3.17 ± 1.19 | yes |
+| block 5 − `frozen_proto` | +2.77 ± 1.20 | yes |
+| block 8 − `attn_only_ft` (all 12 blocks) | **+2.28 ± 0.94** | yes |
+| block 8 − block 11 | +1.73 ± 0.86 | marginal (2.9× floor) |
+| block 2 − `frozen_proto` | −0.40 ± 1.29 | **not settled** |
+| block 0 − `frozen_proto` | −0.47 ± 0.70 | **not settled** |
+
+Read in order:
+
+1. **Depth rises then falls, and the peak is interior.** 78.8, 78.9, 82.0, ≥88.2,
+   86.5. The fall from block 8 to block 11 is 1.73 ± 0.86 — above its interval and
+   about three times the floor, so suggestive-to-settled but worth a second draw
+   before it is leaned on.
+2. **Early-block attention is indistinguishable from doing nothing.** Blocks 0 and 2
+   sit within half a point of `frozen_proto` and neither difference is settled. An
+   earlier commit message on this data said early blocks are *below* frozen; that
+   was an overclaim read off the point estimates, and the paired test does not
+   support it. What is supported is the weaker and still interesting statement:
+   2.4M adaptable parameters buy *nothing* at the bottom of the stack and ~9 points
+   at three-quarters height.
+3. **One well-placed block beats every other configuration measured on this arm.**
+   Block 8 beats all of attention (+2.28), full fine-tuning (+5.00), and frozen
+   (+8.97). The best ViT number anywhere in this document is a 2.75% intervention.
+4. **Block 8 is a lower bound, not a measurement.** Its tuning grid ran 3e-5 → 1e-3
+   and the peak landed on 1e-3, the top, with the tuning curve still climbing
+   monotonically across the whole grid (80.29, 83.09, 86.72, 87.49 on the 50-episode
+   tuning subset). `scripts/run_vit_position_hi.sh` extends it to 3e-3 and 1e-2 and
+   **has not been run** — it was launched and the box became unreachable before it
+   reported. Until it does, every statement about block 8 above is a statement about
+   a floor, and the true peak and the true block-8-minus-block-11 gap can only be
+   larger. The three interior-peaked blocks (0 excepted) need no extension and
+   `run_vit_position_hi.sh` correctly skips them.
+
+That block 0's own grid is at its *bottom* edge cuts the other way and is the one
+thing here that could still move a conclusion: a lower learning rate might lift it.
+But it would have to lift it ~9 points to disturb the shape, and the three grid
+points above it fall away monotonically, so this is recorded as a known hole rather
+than a live threat.
+
+### 3.3.3 Capacity within attention: flat, and why that flatness was misleading
 
 `select_attn_last_n(n)` adapts attention in the last *n* of 12 blocks — same
 parameter type, nested, exactly 2.75% of the backbone per block, every peak interior
 on its own grid, no grid edges anywhere in the sweep. EuroSAT, seed 0, 100 episodes,
-each *n* at its own tuned learning rate. `frac_mod` confirms the intended fraction on
-every row.
+each *n* at its own tuned learning rate.
 
 | n blocks | % of backbone | lr | EuroSAT | frac_mod |
 |---|---|---|---|---|
 | 0 (`frozen_proto`) | 0 | — | 79.27 | 0.000 |
-| **1** | **2.75** | 3e-4 | **86.51 ± 1.18** | 2.743 |
-| 2 | 5.51 | 3e-4 | 86.09 ± 1.21 | 5.484 |
-| 3 | 8.26 | 3e-4 | 86.48 ± 1.17 | 8.223 |
-| 4 | 11.01 | 3e-4 | 86.60 ± 1.20 | 10.962 |
-| **6** | **16.52** | 1e-4 | **86.69 ± 1.13** | 16.279 |
-| 8 | 22.02 | 1e-4 | 85.72 ± 1.20 | 21.641 |
+| **1** (= block 11) | **2.75** | 3e-4 | **86.51** | 2.743 |
+| 2 | 5.51 | 3e-4 | 86.09 | 5.484 |
+| 3 | 8.26 | 3e-4 | 86.48 | 8.223 |
+| 4 | 11.01 | 3e-4 | 86.60 | 10.962 |
+| **6** | **16.52** | 1e-4 | **86.69** | 16.279 |
+| 8 | 22.02 | 1e-4 | 85.72 | 21.641 |
 | 12 (`attn_only_ft`) | 33.04 | 1e-4 | 85.96 | 32.33 |
 
-**n = 1 through 6 is one flat line.** Spread 0.60 across those five points, which is
-exactly the between-run noise floor §4 records — five measurements of the same
-number, not a trend. From 2.75% to 16.5% of the backbone, a six-fold increase in
-adapted parameters changes nothing.
+**n = 1 through 6 is one flat line** — spread 0.60 across those five points, exactly
+the floor. Taken alone this says a six-fold increase in adapted parameters changes
+nothing, and that is what an earlier version of this section concluded: capacity
+within attention is free, so one block is enough and the active ingredient is the
+type.
 
-**Attention in a single block already has all of it.** 86.51 against `frozen_proto`'s
-79.27 is +7.24, and against `full_ft`'s 83.24 it is **+3.27** — both far clear of the
-floor. One block of attention, 2.4M parameters, beats fine-tuning all 85.8M by more
-than three points.
+**§3.3.2 shows why that conclusion does not follow.** Every row of this table is a
+*suffix*: n=6 is blocks 6–11, which **contains block 8**, the best single block
+measured. And n=6 scores 86.69 against block 8's ≥88.24 — paired, block 8 − n=6 is
+**+1.55 ± 0.76**, so adding five more attention blocks to the best one *costs* at
+least a point and a half. The flat line is not "capacity is free". It is a sum of a
+large positive depth effect and a negative interference effect, moving in opposite
+directions as n grows, and cancelling.
 
-Past n=6 there is a hint of decline: n=8 is 0.97 below n=6 and n=12 is 0.73 below.
-Both sit at or just under a point, so with one draw each this is **suggestive and no
-more** — the honest statement is that capacity above ~17% does not help, not that it
-hurts.
+That also disposes of the suffix family as an instrument: it cannot separate "how
+many blocks" from "which blocks", because growing n changes both at once. The
+positional sweep is the design that can, and it is the one to extend.
 
-The learning rate does move with n, but as a step rather than a slope: 3e-4 for
-n ≤ 4, 1e-4 for n ≥ 6. The fraction-of-backbone heuristic that has mispitched six of
-my grids is therefore real but much coarser than I have been treating it — a 4x
-change in adapted parameters moved the optimum not at all, and a 12x change moved it
-by one grid point.
+What survives from this table, independent of the confound:
 
-### 3.3.3 What this does to the capacity story
+- A single block of attention somewhere in the top half beats `full_ft` by 3.3 and
+  frozen by 7.2. Both far clear of the floor, and §3.3.2 only strengthens it.
+- The learning rate moves with n as a step, not a slope: 3e-4 for n ≤ 4, 1e-4 for
+  n ≥ 6. The fraction-of-backbone heuristic that mispitched seven of my grids is
+  real but much coarser than I was treating it — a 4× change in adapted parameters
+  moved the optimum not at all, and a 12× change moved it one grid point.
+- n=6 − `attn_only_ft` is +0.73 ± 1.06, which clears neither bar. There is still no
+  evidence that capacity *above* ~17% hurts, only that it does not help.
 
-Two decompositions of the same 85.8M parameters, both on EuroSAT:
+### 3.3.4 Three retracted readings of this data
 
-| | from | to | parameter change | accuracy change |
-|---|---|---|---|---|
-| **within attention** | 1 block (2.75%) | 12 blocks (33.0%) | **12x** | −0.55 (at the floor) |
-| **across types** | attention (33.0%) | everything (100%) | 3x | **−2.72** |
+All three were published in this document and all three were wrong. The sequence
+matters more than any of them:
 
-A twelve-fold increase in capacity *inside* attention costs nothing measurable. A
-three-fold increase that *brings in other parameter types* costs 2.72. So the
-right-hand decline in §3.3.1 is not about how many parameters are adapted. It is
-about which:
+**(a) "It does not matter which sublayer you move."** `attn` and `mlp` were called a
+tie, on the strength of combining the two within-run intervals in quadrature — the
+test §3.4 shows is invalid for paired data, and which understated this margin by
+about 4×. The nominal gap (1.20 at seed 0) was visible at the time and was dismissed
+as noise. It is not noise; §3.3.1 has it at +1.18 [+0.76, +1.60]. **Cause: wrong
+statistical test.**
 
-> **Attention is the active ingredient, and one block of it is enough. Adapting
-> other parameter types alongside it is at best neutral and at worst harmful.**
+**(b) "An inverted U in capacity, peaking near a third of the backbone."** Read off
+the type ordering in §3.3.1, which is not monotone in parameter count. §3.3.3
+measured capacity directly and found a flat line from 2.75% upward, with no peak at
+33% and no climb to reach it. The apparent optimum was an artefact of 33% being the
+smallest non-trivial point a *type*-based partition can offer — the next point down
+is LayerNorm at 0.045%, and there is nothing in between to reveal that the curve had
+levelled off long before 33%. **Cause: reading a curve off four points that were
+never a curve.**
 
-That is simpler than the inverted U it replaces, and it is the better claim: it
-survives the test that killed the other one, and it makes the §3.5 over-optimisation
-story more specific rather than less. `full_ft` is not losing because 85.8M
-parameters is too many to fit from 25 images — if that were it, the within-attention
-curve would decline too, and it is flat across a 12x range. It is losing because of
-*what else* it moves.
+**(c) "Attention is the active ingredient and one block of it is enough."** Replaced
+(b), and read the flat suffix curve as evidence that size does not matter within
+attention while type does. §3.3.2 shows the suffix curve confounds depth with count
+and that the flatness is two effects cancelling: one well-placed block beats six
+containing it by ≥1.55, and five same-size blocks span ≥9.4 points. **Cause: an
+instrument that varied two things at once, trusted as though it varied one.**
 
-What that leaves open is why MLP and LayerNorm adaptation are harmful alongside
-attention when each helps on its own (`mlp_only_ft` 84.76, `ln_only_ft` 84.75 at
-seed 0, both well above frozen). Nothing here measures that, and §4 says so.
+The common thread is that each reading took a quantity averaged over an unmeasured
+axis and interpreted it as though the axis were not there. (a) averaged over the
+episode pairing, (b) and (c) over depth. The live reading in §3.3 is itself an
+average over *task* — EuroSAT only — and over seed, and both of those are named in
+§4 as the next things to break it.
 
 ### 3.4 Three draws: both claims survive, and the test I was using was the wrong one
 
@@ -581,6 +687,18 @@ need a quantity that cannot be separated from depth.
 
 It is still two datasets, one draw each, with no seed spread on this arm.
 
+**§3.3.2 moves the EuroSAT row of this table, and the direction matters.** The
+table's "best" is the best of the *type* partition over three draws. The best
+configuration now known on EuroSAT is attention in block 8 alone, at ≥88.24 on one
+draw — so headroom there is **≥9.0, not 6.34**, and the best-single-intervention
+figure against `full_ft` rises from 165% to ≥280% of its gain. That does not weaken
+the claim in the box above; it strengthens it, because the configuration that now
+holds the ceiling adapts 2.75% of the backbone rather than 33%. But it does mean
+the ISIC/EuroSAT headroom *ratio* this section leans on is measured with a type
+partition on one side and a positional one on the other until the positional sweep
+is run on ISIC, which §4 lists as unrun.
+
+
 ### 3.6 The inner-step test: the mechanism survives, and the headline strengthens
 
 §3.5 proposes that `full_ft` loses on EuroSAT because 85.8M parameters taking 20
@@ -648,27 +766,38 @@ Explicitly, so none of this gets quoted as a result:
   weight decay, the crossover moving with support-set size — are unrun, and one
   axis probed at three points is not a mechanism established. It is now a
   hypothesis with evidence rather than a story.
-* **§3.3.2's plateau is single-draw at every point.** Five accuracies inside 0.60
+* **§3.3.3's plateau is single-draw at every point.** Five accuracies inside 0.60
   is consistent with one flat line and that is how it is read, but five draws of one
   number and five points on a gentle curve are not distinguishable at this noise
   level. The n=8 and n=12 dip (0.97 and 0.73 below n=6) is at the floor and is
   explicitly not claimed as a decline.
-* **The capacity sweep is EuroSAT only, and attention-only.** Whether a single block
+* **The capacity and positional sweeps are EuroSAT only, and attention-only.** Whether a single block
   is also sufficient on ISIC — where `full_ft` wins and headroom is twice as large —
   is untested, and it is the comparison that would most change the story. Nor does
-  anything here sweep capacity within MLP or LayerNorm, so "attention is the active
-  ingredient" rests on attention behaving flatly and the other types never having
-  been given the same treatment.
-* **§3.3.3 does not explain why other types are harmful alongside attention.**
+  anything here sweep capacity *or position* within MLP or LayerNorm. Since §3.3.2
+  shows depth dominates inside attention, the possibility that a well-placed MLP
+  block also beats `full_ft` is wide open, and it is what would decide whether the
+  finding is about attention or about depth.
+* **Nothing here explains why other types are harmful alongside attention.**
   `mlp_only_ft` (84.76) and `ln_only_ft` (84.75) each beat frozen comfortably on
   their own, yet adding them to attention costs 2.72. Interference between
   simultaneously-adapted types is a description of that, not a mechanism, and
   nothing here measures it. The obvious probe — attention plus MLP, attention plus
   LayerNorm, pairwise — has not been run.
-* **One block means the LAST block.** Every point in §3.3.2 is a suffix. Whether
-  attention in block 0 alone, or any single middle block, does as well as block 11
-  is untested, so "one block is enough" should be read as "the last block is
-  enough". A single-block positional sweep is cheap and is the obvious follow-up.
+* **The positional result's peak is a lower bound, and the sweep is five points.**
+  §3.3.2 answers the "one block means the LAST block" caveat this bullet used to
+  raise — a middle block beats the last one — but block 8's tuning grid topped out
+  at its highest point, so ≥88.24 is a floor and `run_vit_position_hi.sh` has not
+  been run. Block 0's grid is at its *bottom* edge for the same reason, unextended.
+  Five of twelve blocks are measured, one draw each, so the shape of the depth curve
+  between them is interpolation. Whether the peak sits at 8 specifically or anywhere
+  in 6–10 is not established, and nothing has been measured at a second seed.
+* **The depth effect is one dataset.** Everything in §3.3.2 is EuroSAT, where
+  `full_ft` loses. ISIC — twice the headroom, `full_ft` winning — has no positional
+  sweep at all. If depth dominates there too, §3.5's headroom story has to be
+  re-derived on a positional partition on both sides; if it does not, the depth
+  effect is a mild-shift phenomenon rather than a property of the backbone. This is
+  the single most informative unrun experiment on this arm.
 * **The seed spread covers four baselines, not eight.** `ln_scale`, `ln_shift`,
   `mlp` and `patch_embed` have one draw each, so every §3 row outside
   {`full_ft`, `attn`, `ln_only`, `frozen_proto`} is still single-draw. The band
