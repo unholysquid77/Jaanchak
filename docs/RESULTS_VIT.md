@@ -494,15 +494,14 @@ Per-episode paired differences, all on the same 100 episodes:
 
 Read in order:
 
-1. **Depth rises steeply; whether it then falls is not settled.** 78.8, 78.9, 82.0,
-   87.7, 86.5. The rise is enormous and beyond argument — block 8 beats block 5 by
-   5.65 ± 1.40 and block 5 beats block 2 by 3.17 ± 1.19. The *fall* from block 8 to
-   block 11 is +1.19 ± 1.11, which barely clears its own interval and is only twice
-   the floor. **An inverted U in depth is therefore suggested and not established**;
-   what is established is a monotone rise through block 8. Closing the grid edge
-   (point 4) moved this gap from +1.73 to +1.19, i.e. the earlier reading leaned on
-   an undertuned comparison in its own favour, which is exactly the direction a grid
-   edge biases.
+1. **Depth rises steeply and then falls: the peak is interior.** 78.8, 78.9, 82.0,
+   87.7, 86.5. The rise is enormous — block 8 beats block 5 by 5.65 ± 1.40 and block
+   5 beats block 2 by 3.17 ± 1.19. The *fall* from block 8 to block 11 was the one
+   marginal link in the chain at one draw (+1.19 ± 1.11, twice the floor); **§3.3.2a
+   settles it at three draws: +1.54 ± 0.80, every draw positive.** So the inverted U
+   in depth is established, not suggested. Note that closing block 8's grid edge
+   (point 4) had moved this gap *down* from +1.73 to +1.19 — the edge had been
+   inflating it — and the honest three-draw value sits between the two.
 2. **Early-block attention is indistinguishable from doing nothing.** Blocks 0 and 2
    sit within half a point of `frozen_proto` and neither difference is settled. An
    earlier commit message on this data said early blocks are *below* frozen; that
@@ -515,8 +514,8 @@ Read in order:
    fine-tuning (+4.45 ± 1.24) and frozen (+8.43 ± 1.22). The best ViT number
    anywhere in this document is a 2.75% intervention. The margin against `full_ft`
    is the robust one; the margin against *all of attention* is real but only three
-   times the floor, so the specific claim "less attention beats more attention" is
-   weaker than the claim "a well-placed slice beats everything bigger".
+   times the floor at one draw, so the specific claim "less attention beats more
+   attention" rests on §3.3.2a rather than on this row alone.
 4. **Block 8's grid edge is closed, and closing it cost half a point.** The first
    grid ran 3e-5 → 1e-3 and peaked on 1e-3, the top, with the tuning curve still
    climbing (80.29, 83.09, 86.72, 87.49 on the 50-episode tuning subset). The
@@ -537,6 +536,55 @@ Block 0's grid is at its *bottom* edge and is now the only unclosed one. It cuts
 other way — a lower learning rate might lift it — but it would have to lift it ~9
 points to disturb the shape, and the three grid points above it fall away
 monotonically, so this is a known hole rather than a live threat.
+
+### 3.3.2a Three draws of the depth curve, and the two marginal claims settle
+
+The depth result's large links were far clear of the noise floor at one draw, but two
+were not: the fall from block 8 to block 11, and block 8 against the six-block suffix
+containing it. Both are the difference between "a monotone rise" and "an interior
+peak", so both got draws rather than argument. Seeds 1 and 2 at the **seed-0 tuned
+learning rates** — only the episode sample moves, `--split-seed` held at 0 so every
+draw sees the same validation partition. `scripts/run_vit_position_seed.sh`.
+
+| | seed 0 | seed 1 | seed 2 | mean | sd |
+|---|---|---|---|---|---|
+| block 0 | 78.80 | 78.43 | 79.07 | 78.76 | 0.32 |
+| block 2 | 78.87 | 78.32 | 78.75 | 78.64 | 0.29 |
+| block 5 | 82.04 | 81.33 | 81.97 | 81.78 | 0.39 |
+| **block 8** | 87.69 | 87.63 | 87.16 | **87.49** | 0.29 |
+| block 11 | 86.51 | 85.81 | 85.53 | 85.95 | 0.50 |
+| last-6 suffix | 86.69 | 86.08 | 85.92 | 86.23 | 0.41 |
+
+Per-seed differences, mean ± t(2)·sd/√3:
+
+| comparison | 3-draw | per-draw | |
+|---|---|---|---|
+| block 8 − block 5 | **+5.71 ± 1.38** | +5.65, +6.29, +5.19 | settled |
+| block 11 − block 5 | **+4.17 ± 1.31** | +4.47, +4.48, +3.56 | settled |
+| block 5 − block 2 | **+3.14 ± 0.28** | +3.17, +3.01, +3.23 | settled |
+| **block 8 − block 11** | **+1.54 ± 0.80** | +1.19, +1.81, +1.63 | **settled** |
+| **block 8 − last-6** | **+1.26 ± 0.68** | +1.00, +1.55, +1.24 | **settled** |
+| block 2 − block 0 | −0.12 ± 0.48 | +0.07, −0.11, −0.32 | not settled |
+
+**Both marginal claims settle, in the direction the single draw suggested.** The
+inverted U in depth is established: the peak is interior, not a plateau at the top.
+And adding attention blocks to the best single block costs accuracy — so the
+interference term §3.3.3 infers is real and negative, not merely "whatever makes the
+suffix curve flat".
+
+**The depth span replicates tightly.** 8.89, 9.31, 8.41 across the three draws. The
+shallow pair stays indistinguishable (blocks 0 and 2 differ by −0.12 ± 0.48), which
+is the third independent confirmation that early-block attention does nothing here.
+
+**A note on how much the pairing buys across draws, because it is less than within
+one.** Individual accuracies have sd ≈ 0.37 across draws; the per-seed differences
+have sd ≈ 0.33. If the two accuracies in a difference were independent the difference
+sd would be √2 × 0.37 ≈ 0.52, so pairing across draws gains a factor of **1.6**,
+implying a correlation of about ρ ≈ 0.6 between draws. That is a real gain and the
+reason these two claims resolve at n=3, but it is far smaller than the within-seed
+episode pairing that §3.4 is about, where the episodes are *literally identical*. The
+two should not be quoted as the same effect: seeds share a validation split and tuned
+learning rates but not an episode sample.
 
 ### 3.3.3 Capacity within attention: flat, and why that flatness was misleading
 
@@ -565,9 +613,9 @@ type.
 **§3.3.2 shows why that conclusion does not follow.** Every row of this table is a
 *suffix*: n=6 is blocks 6–11, which **contains block 8**, the best single block
 measured. And n=6 scores 86.69 against block 8's 87.69 — paired, block 8 − n=6 is
-**+1.00 ± 0.96**, which clears its interval and the floor, but only just. So "adding
-attention blocks to the best one actively costs" is *suggested, not established*, and
-it needs the second seed §4 asks for. What the suffix table cannot be read as is a
+**+1.00 ± 0.96** at one draw, which clears its interval and the floor only just.
+**§3.3.2a settles it at three draws: +1.26 ± 0.68, every draw positive.** So adding
+five more attention blocks to the best single one *does* cost accuracy. What the suffix table cannot be read as is a
 capacity curve: whatever the sign of the interference term, n=6 contains block 8, so
 the flat line is a large positive depth effect and some other term summing to
 something flat, not evidence that capacity is free.
@@ -958,12 +1006,15 @@ Explicitly, so none of this gets quoted as a result:
   not alternatives. What remains open is narrower and now stated as its own entry:
   five of twelve depths on each dataset, one draw each, and two datasets is still two
   points on a shift axis that §4 already warns is a proxy.
-* **The depth curves are five points and one draw, on both datasets.** Whether
-  ISIC's plateau is flat or gently peaked, and whether EuroSAT's peak sits at 8
-  specifically or anywhere in 6–10, is interpolation. `scripts/run_vit_position_seed.sh`
-  adds seeds 1 and 2 to the EuroSAT curve and is what would settle the two marginal
-  claims in §3.3.2 and §3.3.3; the ISIC curve has no second draw planned yet. Every
-  grid edge on both curves is now closed except EuroSAT block 0's bottom edge.
+* **PARTLY ANSWERED: EuroSAT's curve now has three draws, ISIC's still has one.**
+  §3.3.2a settled both marginal claims (block 8 − block 11 = +1.54 ± 0.80, block 8 −
+  last-6 = +1.26 ± 0.68, every draw positive) and the depth span replicates at
+  8.89/9.31/8.41. What remains: **the ISIC curve is still single-draw at every
+  depth**, so §3.3.5's plateau and its fall are one draw each and the mirrored-curve
+  claim rests on three ISIC draws it does not have. Both curves are also still five
+  of twelve depths, so whether EuroSAT's peak sits at 8 specifically or anywhere in
+  6–10 is interpolation. Every grid edge on both curves is closed except EuroSAT
+  block 0's bottom edge.
 * **Nothing explains what `full_ft` has that attention does not, under strong shift.**
   §3.3.5 point 4 sharpens the question: on ISIC one well-placed block ties all twelve
   blocks of attention, and both lose to `full_ft` by ~3.3. So the shortfall is not
