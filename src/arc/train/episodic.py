@@ -258,6 +258,64 @@ def _n_blocks(backbone: TappedBackbone) -> int:
     return sum(1 for n in backbone.unit_names if n.startswith("block_"))
 
 
+def _open_attn_in_blocks(backbone: TappedBackbone, keep, label: str) -> None:
+    """Open attention Linears whose block index satisfies ``keep``.
+
+    Shared by :func:`select_attn_last_n` and :func:`select_attn_block` so the two
+    cannot drift apart in how they identify an attention module or place it by depth.
+    """
+    backbone.adapted.requires_grad_(False)
+    opened = 0
+    for name, module in backbone.adapted.named_modules():
+        if not isinstance(module, torch.nn.Linear):
+            continue
+        if ".attn." not in f".{name}.":
+            continue
+        match = _BLOCK_RE.match(name)
+        # Attention lives only inside blocks; anything matching ".attn." outside one
+        # would mean the unit split changed shape, so refuse rather than guess which
+        # side of the cut it belongs on.
+        if match is None:
+            raise RuntimeError(
+                f"attention module {name!r} is not inside a block_* unit; "
+                f"{label} cannot place it by depth"
+            )
+        if keep(int(match.group(1))):
+            module.requires_grad_(True)
+            opened += 1
+    if opened == 0:
+        raise RuntimeError(f"{label} opened no attention modules")
+
+
+def select_attn_block(index: int) -> ParamSelector:
+    """Attention in ONE block, by absolute position.
+
+    §3.3.2 varied capacity as a growing suffix and found a flat line from one block
+    upward, which says one block of attention is enough. Every point in that sweep
+    included block 11, so what it actually established is that *the last* block is
+    enough. This is the selector that separates the two: if attention in block 0
+    alone does as well, depth does not matter and the claim is about attention; if it
+    does not, the claim is about the last block specifically and should say so.
+    """
+    if index < 0:
+        raise ValueError(f"index must be non-negative, got {index}")
+
+    def selector(backbone: TappedBackbone) -> None:
+        label = f"select_attn_block_{index}"
+        _require_family(backbone, "vit", label)
+        total = _n_blocks(backbone)
+        if index >= total:
+            raise ValueError(
+                f"{label} needs block {index} but the backbone has {total} "
+                f"(indices 0..{total - 1})"
+            )
+        _open_attn_in_blocks(backbone, lambda i: i == index, label)
+
+    selector.__name__ = f"select_attn_block_{index}"
+    selector.__doc__ = f"Attention in block {index} only."
+    return selector
+
+
 def select_attn_last_n(n: int) -> ParamSelector:
     """Attention in the LAST ``n`` transformer blocks only.
 
@@ -285,23 +343,9 @@ def select_attn_last_n(n: int) -> ParamSelector:
                 f"{total}; the selector would silently behave like select_attn."
             )
         first = total - n
-        backbone.adapted.requires_grad_(False)
-        for name, module in backbone.adapted.named_modules():
-            if not isinstance(module, torch.nn.Linear):
-                continue
-            if ".attn." not in f".{name}.":
-                continue
-            match = _BLOCK_RE.match(name)
-            # Attention lives only inside blocks; anything matching ".attn." outside
-            # one would mean the unit split changed shape, so refuse rather than
-            # guess which side of the cut it belongs on.
-            if match is None:
-                raise RuntimeError(
-                    f"attention module {name!r} is not inside a block_* unit; "
-                    "select_attn_last_n cannot place it by depth"
-                )
-            if int(match.group(1)) >= first:
-                module.requires_grad_(True)
+        _open_attn_in_blocks(
+            backbone, lambda i: i >= first, f"select_attn_last_{n}"
+        )
 
     selector.__name__ = f"select_attn_last_{n}"
     selector.__doc__ = f"Attention in the last {n} transformer blocks only."

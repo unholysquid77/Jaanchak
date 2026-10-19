@@ -367,3 +367,65 @@ def test_attn_last_n_baselines_are_registered_and_distinct(backbone: TappedBackb
     for n in (1, 2, 3, 4, 6, 8):
         spec = BASELINES[f"attn_last{n}_ft"]
         assert f"last {n} transformer block" in spec.description, spec.description
+
+
+# -- the positional sweep -----------------------------------------------------
+
+
+def test_attn_block_opens_exactly_that_block(backbone: TappedBackbone) -> None:
+    from arc.train.episodic import select_attn_block
+
+    for i in (0, 2, 5, 8, 11):
+        select_attn_block(i)(backbone)
+        opened = _names(backbone)
+        assert opened, f"block {i} selected nothing"
+        blocks = {int(n.split(".")[0].removeprefix("block_")) for n in opened}
+        assert blocks == {i}, f"index {i} opened blocks {sorted(blocks)}"
+        assert all(".attn." in f".{n}" for n in opened), sorted(opened)[:4]
+
+
+def test_attn_block_is_the_same_size_at_every_depth(backbone: TappedBackbone) -> None:
+    """The point of a positional sweep is that only position varies. If the counts
+    differed, a difference in accuracy could be about size instead."""
+    from arc.train.episodic import select_attn_block
+
+    counts = set()
+    for i in range(12):
+        select_attn_block(i)(backbone)
+        counts.add(_count(backbone))
+    assert len(counts) == 1, counts
+
+
+def test_attn_block_11_is_attn_last_1(backbone: TappedBackbone) -> None:
+    """The positional sweep's right-hand end must be the suffix sweep's left-hand
+    end, exactly -- that shared point is what makes the two curves comparable."""
+    from arc.train.episodic import select_attn_block, select_attn_last_n
+
+    select_attn_last_n(1)(backbone)
+    suffix = _names(backbone)
+    select_attn_block(11)(backbone)
+    assert _names(backbone) == suffix
+
+
+def test_attn_block_refuses_an_index_past_the_end(backbone: TappedBackbone) -> None:
+    from arc.train.episodic import select_attn_block
+
+    with pytest.raises(ValueError, match="indices 0..11"):
+        select_attn_block(12)(backbone)
+    with pytest.raises(ValueError, match="non-negative"):
+        select_attn_block(-1)
+
+
+def test_attn_block_baselines_registered_without_duplicating_block_11(
+    backbone: TappedBackbone,
+) -> None:
+    from arc.train.baselines import BASELINES
+
+    for i in (0, 2, 5, 8):
+        key = f"attn_block{i}_ft"
+        assert key in BASELINES, key
+        _, select, _ = BASELINES[key].build(backbone, 10)
+        select(backbone)
+        assert _names(backbone)
+    # block 11 is attn_last1_ft; registering both would quote one measurement twice.
+    assert "attn_block11_ft" not in BASELINES

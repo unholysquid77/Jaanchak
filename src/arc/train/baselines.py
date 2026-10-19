@@ -26,6 +26,7 @@ import torch
 
 from arc.backbones.tapped import TappedBackbone
 from arc.train.episodic import (
+    select_attn_block,
     select_attn_last_n,
     ParamSelector,
     StaticController,
@@ -150,6 +151,19 @@ def _attn_last_n_ft(n: int):
     return build
 
 
+# The positional sweep. Section 3.3.2's suffix sweep found one block is enough, but
+# every point in it included block 11, so the established claim is "the LAST block is
+# enough". These separate position from count: same 2.75% of the backbone, one block,
+# at five depths. attn_block11_ft is deliberately NOT registered -- it is
+# attn_last1_ft, and two names for one experiment is how a table quotes a single
+# measurement twice (see the n=12 case above).
+def _attn_block_ft(index: int):
+    def build(backbone: TappedBackbone, inner_steps: int):
+        return StaticController(_ones(backbone)), select_attn_block(index), inner_steps
+
+    return build
+
+
 def _mlp_only_ft(backbone: TappedBackbone, inner_steps: int):
     return StaticController(_ones(backbone)), select_mlp, inner_steps
 
@@ -244,3 +258,12 @@ for _n in (1, 2, 3, 4, 6, 8):
         arch_family="vit",
     )
 del _n
+
+for _i in (0, 2, 5, 8):
+    BASELINES[f"attn_block{_i}_ft"] = BaselineSpec(
+        f"attn_block{_i}_ft",
+        f"Adapt attention in block {_i} only",
+        _attn_block_ft(_i),
+        arch_family="vit",
+    )
+del _i
