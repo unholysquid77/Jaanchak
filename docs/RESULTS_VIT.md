@@ -777,7 +777,10 @@ Explicitly, so none of this gets quoted as a result:
   anything here sweep capacity *or position* within MLP or LayerNorm. Since §3.3.2
   shows depth dominates inside attention, the possibility that a well-placed MLP
   block also beats `full_ft` is wide open, and it is what would decide whether the
-  finding is about attention or about depth.
+  finding is about attention or about depth. `select_mlp_block` and
+  `scripts/run_vit_position_mlp.sh` exist and are unrun; the two hypotheses and how
+  they differ in sign and size are written down in that selector's docstring, so the
+  prediction is on record before the measurement rather than after it.
 * **Nothing here explains why other types are harmful alongside attention.**
   `mlp_only_ft` (84.76) and `ln_only_ft` (84.75) each beat frozen comfortably on
   their own, yet adding them to attention costs 2.72. Interference between
@@ -798,6 +801,12 @@ Explicitly, so none of this gets quoted as a result:
   re-derived on a positional partition on both sides; if it does not, the depth
   effect is a mild-shift phenomenon rather than a property of the backbone. This is
   the single most informative unrun experiment on this arm.
+  `scripts/run_vit_position_isic.sh` exists and is unrun. Both it and the MLP sweep
+  use one wide six-point grid at every depth rather than a window centred on the
+  fraction-of-backbone heuristic, because the EuroSAT sweep showed that heuristic
+  gets the early end backwards — a single early block tuned *down* to 3e-5 while a
+  single late block tuned *up* past 1e-3, and an undertuned block is indistinguishable
+  from the depth effect being measured.
 * **The seed spread covers four baselines, not eight.** `ln_scale`, `ln_shift`,
   `mlp` and `patch_embed` have one draw each, so every §3 row outside
   {`full_ft`, `attn`, `ln_only`, `frozen_proto`} is still single-draw. The band

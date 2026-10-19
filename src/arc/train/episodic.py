@@ -258,44 +258,66 @@ def _n_blocks(backbone: TappedBackbone) -> int:
     return sum(1 for n in backbone.unit_names if n.startswith("block_"))
 
 
-def _open_attn_in_blocks(backbone: TappedBackbone, keep, label: str) -> None:
-    """Open attention Linears whose block index satisfies ``keep``.
+def _open_sublayer_in_blocks(
+    backbone: TappedBackbone, infix: str, keep, label: str
+) -> None:
+    """Open Linears matching ``infix`` whose block index satisfies ``keep``.
 
-    Shared by :func:`select_attn_last_n` and :func:`select_attn_block` so the two
-    cannot drift apart in how they identify an attention module or place it by depth.
+    Shared by every by-depth selector -- attention and MLP, single-block and suffix --
+    so none of them can drift apart in how it identifies a sublayer module or places
+    it by depth. ``infix`` is matched the same way :func:`select_attn` and
+    :func:`select_mlp` match it, so a by-depth selector at full depth selects exactly
+    what the whole-type selector does, and the tests assert that by name.
     """
+    kind = infix.strip(".")
     backbone.adapted.requires_grad_(False)
     opened = 0
     for name, module in backbone.adapted.named_modules():
         if not isinstance(module, torch.nn.Linear):
             continue
-        if ".attn." not in f".{name}.":
+        if infix not in f".{name}.":
             continue
         match = _BLOCK_RE.match(name)
-        # Attention lives only inside blocks; anything matching ".attn." outside one
-        # would mean the unit split changed shape, so refuse rather than guess which
-        # side of the cut it belongs on.
+        # Both sublayers live only inside blocks; anything matching the infix outside
+        # one would mean the unit split changed shape, so refuse rather than guess
+        # which side of the cut it belongs on.
         if match is None:
             raise RuntimeError(
-                f"attention module {name!r} is not inside a block_* unit; "
+                f"{kind} module {name!r} is not inside a block_* unit; "
                 f"{label} cannot place it by depth"
             )
         if keep(int(match.group(1))):
             module.requires_grad_(True)
             opened += 1
     if opened == 0:
-        raise RuntimeError(f"{label} opened no attention modules")
+        raise RuntimeError(f"{label} opened no {kind} modules")
+
+
+def _open_attn_in_blocks(backbone: TappedBackbone, keep, label: str) -> None:
+    """Open attention Linears whose block index satisfies ``keep``."""
+    _open_sublayer_in_blocks(backbone, ".attn.", keep, label)
+
+
+def _open_mlp_in_blocks(backbone: TappedBackbone, keep, label: str) -> None:
+    """Open block-MLP Linears whose block index satisfies ``keep``."""
+    _open_sublayer_in_blocks(backbone, ".mlp.", keep, label)
 
 
 def select_attn_block(index: int) -> ParamSelector:
     """Attention in ONE block, by absolute position.
 
-    §3.3.2 varied capacity as a growing suffix and found a flat line from one block
-    upward, which says one block of attention is enough. Every point in that sweep
-    included block 11, so what it actually established is that *the last* block is
-    enough. This is the selector that separates the two: if attention in block 0
-    alone does as well, depth does not matter and the claim is about attention; if it
-    does not, the claim is about the last block specifically and should say so.
+    Built to separate "one block of attention is enough" from "the *last* block is
+    enough", because every point of the suffix sweep contained block 11. It answered
+    that question and then overturned the sweep that motivated it: five
+    identically-sized single-block interventions span >=9.4 points on EuroSAT
+    (``docs/RESULTS_VIT.md`` §3.3.2), against 1.18 for the whole attention-vs-MLP
+    comparison, and block 8 alone beats the six-block suffix that *contains* it. So
+    depth, not count and not type, is the largest effect measured on this arm, and
+    the suffix family is not a usable instrument for capacity because growing n
+    changes which blocks and how many at the same time.
+
+    The parameter count is identical at every index, which the tests assert. That is
+    load-bearing: without it an accuracy difference across depth could be about size.
     """
     if index < 0:
         raise ValueError(f"index must be non-negative, got {index}")
@@ -360,6 +382,53 @@ def select_mlp(backbone: TappedBackbone) -> None:
     for name, module in backbone.adapted.named_modules():
         if isinstance(module, torch.nn.Linear) and ".mlp." in f".{name}.":
             module.requires_grad_(True)
+
+
+def select_mlp_block(index: int) -> ParamSelector:
+    """Block MLP in ONE block, by absolute position. Counterpart to
+    :func:`select_attn_block`.
+
+    This is the experiment that decides what §3.3.2's depth finding is *about*. That
+    section shows attention in block 8 alone beating every other configuration on
+    EuroSAT, including full fine-tuning, and attention in block 0 alone being
+    indistinguishable from adapting nothing. Two readings survive it:
+
+    * **It is about attention.** Attention is the active ingredient and depth governs
+      where attention can act, in which case MLP adaptation should stay near its
+      whole-type value at every depth and show no comparable spread.
+    * **It is about depth.** Three-quarters height is simply where this task's useful
+      adaptation lives, whatever parameter type sits there, in which case a single
+      well-placed MLP block should also beat `full_ft` and the curve should have the
+      same shape.
+
+    The two predictions differ in sign and in size, so one sweep separates them. MLP
+    is the right counterpart because it is the other half of the same block, at the
+    same depths, with exactly twice the parameters per block -- so a null result here
+    cannot be explained away as the intervention having been too small.
+
+    Note what this does NOT hold fixed: an MLP block is 5.50% of the backbone against
+    attention's 2.75%. Depth is held exactly fixed and type varies with size riding
+    along, which is the opposite confound from :func:`select_attn_block`'s. The two
+    sweeps together bracket it: if MLP is flat across depth *despite* being twice the
+    size, size is not what is driving either curve.
+    """
+    if index < 0:
+        raise ValueError(f"index must be non-negative, got {index}")
+
+    def selector(backbone: TappedBackbone) -> None:
+        label = f"select_mlp_block_{index}"
+        _require_family(backbone, "vit", label)
+        total = _n_blocks(backbone)
+        if index >= total:
+            raise ValueError(
+                f"{label} needs block {index} but the backbone has {total} "
+                f"(indices 0..{total - 1})"
+            )
+        _open_mlp_in_blocks(backbone, lambda i: i == index, label)
+
+    selector.__name__ = f"select_mlp_block_{index}"
+    selector.__doc__ = f"Block MLP in block {index} only."
+    return selector
 
 
 def select_patch_embed(backbone: TappedBackbone) -> None:

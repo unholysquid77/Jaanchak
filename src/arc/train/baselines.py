@@ -41,6 +41,7 @@ from arc.train.episodic import (
     select_ln_scale,
     select_ln_shift,
     select_mlp,
+    select_mlp_block,
     select_none,
     select_patch_embed,
     select_units,
@@ -164,6 +165,13 @@ def _attn_block_ft(index: int):
     return build
 
 
+def _mlp_block_ft(index: int):
+    def factory(backbone: TappedBackbone, inner_steps: int):
+        return StaticController(_ones(backbone)), select_mlp_block(index), inner_steps
+
+    return factory
+
+
 def _mlp_only_ft(backbone: TappedBackbone, inner_steps: int):
     return StaticController(_ones(backbone)), select_mlp, inner_steps
 
@@ -264,6 +272,20 @@ for _i in (0, 2, 5, 8):
         f"attn_block{_i}_ft",
         f"Adapt attention in block {_i} only",
         _attn_block_ft(_i),
+        arch_family="vit",
+    )
+del _i
+
+# The same depths in the OTHER half of the block. Unlike attn_block11_ft there is no
+# mlp suffix family for block 11 to duplicate, so 11 is registered here and the two
+# sweeps can be read at five matching depths. This is the comparison that decides
+# whether RESULTS_VIT.md §3.3.2 is a fact about attention or a fact about depth; see
+# select_mlp_block for the two predictions and how they differ.
+for _i in (0, 2, 5, 8, 11):
+    BASELINES[f"mlp_block{_i}_ft"] = BaselineSpec(
+        f"mlp_block{_i}_ft",
+        f"Adapt block MLP in block {_i} only",
+        _mlp_block_ft(_i),
         arch_family="vit",
     )
 del _i

@@ -429,3 +429,126 @@ def test_attn_block_baselines_registered_without_duplicating_block_11(
         assert _names(backbone)
     # block 11 is attn_last1_ft; registering both would quote one measurement twice.
     assert "attn_block11_ft" not in BASELINES
+
+
+# -- the MLP positional sweep --------------------------------------------------
+#
+# The attention positional sweep (RESULTS_VIT.md §3.3.2) is the largest effect on
+# this arm, and it leaves one question open that decides what the effect is ABOUT:
+# whether a well-placed block of any type works, or specifically attention. These
+# assert the counterpart selector is a clean instrument for that -- same depths,
+# same single-block shape, only the sublayer differs.
+
+
+def test_mlp_block_opens_exactly_that_block(backbone: TappedBackbone) -> None:
+    from arc.train.episodic import select_mlp_block
+
+    for i in (0, 2, 5, 8, 11):
+        select_mlp_block(i)(backbone)
+        opened = _names(backbone)
+        assert opened, f"block {i} selected nothing"
+        blocks = {int(n.split(".")[0].removeprefix("block_")) for n in opened}
+        assert blocks == {i}, f"index {i} opened blocks {sorted(blocks)}"
+        assert all(".mlp." in f".{n}" for n in opened), sorted(opened)[:4]
+
+
+def test_mlp_block_is_the_same_size_at_every_depth(backbone: TappedBackbone) -> None:
+    """Same reason as the attention version: only position may vary within the
+    sweep, or a difference across depth could be about size."""
+    from arc.train.episodic import select_mlp_block
+
+    counts = set()
+    for i in range(12):
+        select_mlp_block(i)(backbone)
+        counts.add(_count(backbone))
+    assert len(counts) == 1, counts
+
+
+def test_mlp_block_opens_no_attention_and_vice_versa(
+    backbone: TappedBackbone,
+) -> None:
+    """The two positional sweeps must be disjoint at every depth. If either leaked
+    into the other, the comparison that separates 'about attention' from 'about
+    depth' would be comparing two things that overlap."""
+    from arc.train.episodic import select_attn_block, select_mlp_block
+
+    for i in (0, 5, 11):
+        select_mlp_block(i)(backbone)
+        mlp = _names(backbone)
+        select_attn_block(i)(backbone)
+        attn = _names(backbone)
+        assert mlp and attn
+        assert not (mlp & attn), sorted(mlp & attn)[:4]
+
+
+def test_mlp_block_is_twice_attn_block(backbone: TappedBackbone) -> None:
+    """An MLP block has exactly twice a block's attention parameters, matching the
+    whole-type ratio asserted by test_attn_is_smaller_than_mlp.
+
+    This is the one thing the MLP sweep does NOT hold fixed against the attention
+    sweep, and it is recorded as an assertion rather than a comment because the
+    interpretation in select_mlp_block's docstring depends on the direction: a flat
+    MLP curve matters precisely because the intervention is the larger one.
+    """
+    from arc.train.episodic import select_attn_block, select_mlp_block
+
+    select_attn_block(5)(backbone)
+    attn = _count(backbone)
+    select_mlp_block(5)(backbone)
+    mlp = _count(backbone)
+    # Not exactly 2x: attention carries a square qkv/proj pair plus biases, the MLP
+    # a 4x-wide pair plus biases, so assert the ratio rather than equality of double.
+    assert 1.9 < mlp / attn < 2.1, (attn, mlp, mlp / attn)
+
+
+def test_mlp_blocks_reconstruct_select_mlp(backbone: TappedBackbone) -> None:
+    """Every block's MLP, unioned, is exactly select_mlp -- so the positional sweep
+    partitions the whole-type baseline rather than sampling some subset of it."""
+    from arc.train.episodic import select_mlp, select_mlp_block
+
+    select_mlp(backbone)
+    whole = _names(backbone)
+    union: set[str] = set()
+    for i in range(12):
+        select_mlp_block(i)(backbone)
+        union |= _names(backbone)
+    assert union == whole, sorted(union ^ whole)[:6]
+
+
+def test_mlp_block_refuses_an_index_past_the_end(backbone: TappedBackbone) -> None:
+    from arc.train.episodic import select_mlp_block
+
+    with pytest.raises(ValueError, match="indices 0..11"):
+        select_mlp_block(12)(backbone)
+    with pytest.raises(ValueError, match="non-negative"):
+        select_mlp_block(-1)
+
+
+def test_mlp_block_baselines_are_registered_at_all_five_depths(
+    backbone: TappedBackbone,
+) -> None:
+    from arc.train.baselines import BASELINES
+
+    for i in (0, 2, 5, 8, 11):
+        key = f"mlp_block{i}_ft"
+        assert key in BASELINES, key
+        spec = BASELINES[key]
+        assert spec.arch_family == "vit"
+        assert f"block {i}" in spec.description, spec.description
+        _, select, _ = spec.build(backbone, 10)
+        select(backbone)
+        opened = _names(backbone)
+        assert opened
+        assert all(".mlp." in f".{n}" for n in opened), sorted(opened)[:4]
+
+
+def test_mlp_block_11_is_not_a_duplicate_of_anything(
+    backbone: TappedBackbone,
+) -> None:
+    """block 11 IS registered here, unlike attn_block11_ft, because there is no MLP
+    suffix family for it to duplicate. Asserted so that adding one later fails this
+    test rather than silently creating two names for one experiment."""
+    from arc.train.baselines import BASELINES
+
+    assert "mlp_block11_ft" in BASELINES
+    assert "mlp_last1_ft" not in BASELINES
