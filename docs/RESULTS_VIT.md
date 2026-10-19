@@ -384,12 +384,14 @@ The finding is this. Take five interventions that are *identical in size and in
 parameter type* — attention in exactly one transformer block, 2.75% of the backbone,
 2.4M parameters — and vary only **which** block. On EuroSAT they span
 
-> **78.80 at block 0 to at least 88.24 at block 8: a range of ≥9.4 points.**
+> **78.80 at block 0 to 87.69 at block 8: a range of 8.89 points.**
 
 For comparison, the entire parameter-*type* axis — patch-embed, LayerNorm,
 attention, MLP, everything — spans 6.5 points, and the headline `attn` − `mlp` gap
-inside it is 1.18. **Depth is a larger axis than type, by a factor of about eight
+inside it is 1.18. **Depth is a larger axis than type, by a factor of about seven
 against the type comparison and still clearly larger than the whole type range.**
+Both endpoints are now interior optima on their own grids, so this is a measurement
+rather than a bound (§3.3.2 point 4).
 Every number that follows in §3.3.1 and §3.3.3 is a quantity averaged over depth,
 and §3.3.2 is why that averaging is the thing to be suspicious of.
 
@@ -456,7 +458,7 @@ rate. `scripts/run_vit_position.sh`.
 | 0 | 3e-5 **(bottom grid edge)** | 78.80 | 2.636 |
 | 2 | 3e-4 | 78.87 | 2.732 |
 | 5 | 3e-4 | 82.04 | 2.736 |
-| **8** | 1e-3 **(TOP grid edge — a bound)** | **≥88.24** | 2.749 |
+| **8** | 3e-3 | **87.69** | 2.751 |
 | 11 | 3e-4 | 86.51 | 2.743 |
 | — `frozen_proto` | — | 79.27 | 0.000 |
 | — `full_ft` | 1e-5 | 83.24 | 83.279 |
@@ -469,22 +471,30 @@ Per-episode paired differences, all on the same 100 episodes:
 
 | comparison | difference | clears 0.6 floor? |
 |---|---|---|
-| block 8 − `frozen_proto` | **+8.97 ± 1.15** | yes |
-| block 8 − `full_ft` | **+5.00 ± 1.03** | yes |
+| block 8 − `frozen_proto` | **+8.43 ± 1.22** | yes |
+| block 8 − block 5 | +5.65 ± 1.40 | yes |
+| block 8 − `full_ft` | **+4.45 ± 1.24** | yes |
 | block 11 − block 5 | +4.47 ± 1.29 | yes |
 | block 5 − block 2 | +3.17 ± 1.19 | yes |
+| block 8 − `mlp_only_ft` | +2.93 ± 1.29 | yes |
 | block 5 − `frozen_proto` | +2.77 ± 1.20 | yes |
-| block 8 − `attn_only_ft` (all 12 blocks) | **+2.28 ± 0.94** | yes |
-| block 8 − block 11 | +1.73 ± 0.86 | marginal (2.9× floor) |
+| block 8 − `attn_only_ft` (all 12 blocks) | **+1.73 ± 1.07** | yes, but 2.9× floor |
+| block 8 − block 11 | +1.19 ± 1.11 | **marginal both ways** |
+| block 8 − `attn_last6_ft` (contains block 8) | +1.00 ± 0.96 | **marginal both ways** |
 | block 2 − `frozen_proto` | −0.40 ± 1.29 | **not settled** |
 | block 0 − `frozen_proto` | −0.47 ± 0.70 | **not settled** |
 
 Read in order:
 
-1. **Depth rises then falls, and the peak is interior.** 78.8, 78.9, 82.0, ≥88.2,
-   86.5. The fall from block 8 to block 11 is 1.73 ± 0.86 — above its interval and
-   about three times the floor, so suggestive-to-settled but worth a second draw
-   before it is leaned on.
+1. **Depth rises steeply; whether it then falls is not settled.** 78.8, 78.9, 82.0,
+   87.7, 86.5. The rise is enormous and beyond argument — block 8 beats block 5 by
+   5.65 ± 1.40 and block 5 beats block 2 by 3.17 ± 1.19. The *fall* from block 8 to
+   block 11 is +1.19 ± 1.11, which barely clears its own interval and is only twice
+   the floor. **An inverted U in depth is therefore suggested and not established**;
+   what is established is a monotone rise through block 8. Closing the grid edge
+   (point 4) moved this gap from +1.73 to +1.19, i.e. the earlier reading leaned on
+   an undertuned comparison in its own favour, which is exactly the direction a grid
+   edge biases.
 2. **Early-block attention is indistinguishable from doing nothing.** Blocks 0 and 2
    sit within half a point of `frozen_proto` and neither difference is settled. An
    earlier commit message on this data said early blocks are *below* frozen; that
@@ -493,23 +503,32 @@ Read in order:
    2.4M adaptable parameters buy *nothing* at the bottom of the stack and ~9 points
    at three-quarters height.
 3. **One well-placed block beats every other configuration measured on this arm.**
-   Block 8 beats all of attention (+2.28), full fine-tuning (+5.00), and frozen
-   (+8.97). The best ViT number anywhere in this document is a 2.75% intervention.
-4. **Block 8 is a lower bound, not a measurement.** Its tuning grid ran 3e-5 → 1e-3
-   and the peak landed on 1e-3, the top, with the tuning curve still climbing
-   monotonically across the whole grid (80.29, 83.09, 86.72, 87.49 on the 50-episode
-   tuning subset). `scripts/run_vit_position_hi.sh` extends it to 3e-3 and 1e-2 and
-   **has not been run** — it was launched and the box became unreachable before it
-   reported. Until it does, every statement about block 8 above is a statement about
-   a floor, and the true peak and the true block-8-minus-block-11 gap can only be
-   larger. The three interior-peaked blocks (0 excepted) need no extension and
-   `run_vit_position_hi.sh` correctly skips them.
+   Block 8 beats all of attention (+1.73 ± 1.07), MLP (+2.93 ± 1.29), full
+   fine-tuning (+4.45 ± 1.24) and frozen (+8.43 ± 1.22). The best ViT number
+   anywhere in this document is a 2.75% intervention. The margin against `full_ft`
+   is the robust one; the margin against *all of attention* is real but only three
+   times the floor, so the specific claim "less attention beats more attention" is
+   weaker than the claim "a well-placed slice beats everything bigger".
+4. **Block 8's grid edge is closed, and closing it cost half a point.** The first
+   grid ran 3e-5 → 1e-3 and peaked on 1e-3, the top, with the tuning curve still
+   climbing (80.29, 83.09, 86.72, 87.49 on the 50-episode tuning subset). The
+   extension (`scripts/run_vit_position_hi.sh`, `results/vit_pos8_lr_hi`) added 3e-3
+   and 1e-2: **88.85 then 86.72**, so the optimum is interior at 3e-3 and the edge
+   report is empty. Re-measured at the proper learning rate, block 8 is **87.69**
+   against 88.24 at the undertuned 1e-3 — and those two differ by 0.55 ± 0.93, i.e.
+   not distinguishable from the between-run floor, which is a useful incidental check
+   that the floor is where §4 says it is. Every block in the sweep now has an
+   interior optimum except block 0, which sits at its *bottom* edge.
 
-That block 0's own grid is at its *bottom* edge cuts the other way and is the one
-thing here that could still move a conclusion: a lower learning rate might lift it.
-But it would have to lift it ~9 points to disturb the shape, and the three grid
-points above it fall away monotonically, so this is recorded as a known hole rather
-than a live threat.
+   Worth noting what the edge was doing: it was flattering the finding. The bound
+   read 88.24 and made block 8 − block 11 look like +1.73; the measurement reads
+   87.69 and makes it +1.19. A grid edge is not a neutral uncertainty — the peak it
+   hides is the one you went looking for.
+
+Block 0's grid is at its *bottom* edge and is now the only unclosed one. It cuts the
+other way — a lower learning rate might lift it — but it would have to lift it ~9
+points to disturb the shape, and the three grid points above it fall away
+monotonically, so this is a known hole rather than a live threat.
 
 ### 3.3.3 Capacity within attention: flat, and why that flatness was misleading
 
@@ -537,11 +556,13 @@ type.
 
 **§3.3.2 shows why that conclusion does not follow.** Every row of this table is a
 *suffix*: n=6 is blocks 6–11, which **contains block 8**, the best single block
-measured. And n=6 scores 86.69 against block 8's ≥88.24 — paired, block 8 − n=6 is
-**+1.55 ± 0.76**, so adding five more attention blocks to the best one *costs* at
-least a point and a half. The flat line is not "capacity is free". It is a sum of a
-large positive depth effect and a negative interference effect, moving in opposite
-directions as n grows, and cancelling.
+measured. And n=6 scores 86.69 against block 8's 87.69 — paired, block 8 − n=6 is
+**+1.00 ± 0.96**, which clears its interval and the floor, but only just. So "adding
+attention blocks to the best one actively costs" is *suggested, not established*, and
+it needs the second seed §4 asks for. What the suffix table cannot be read as is a
+capacity curve: whatever the sign of the interference term, n=6 contains block 8, so
+the flat line is a large positive depth effect and some other term summing to
+something flat, not evidence that capacity is free.
 
 That also disposes of the suffix family as an instrument: it cannot separate "how
 many blocks" from "which blocks", because growing n changes both at once. The
@@ -583,7 +604,7 @@ never a curve.**
 (b), and read the flat suffix curve as evidence that size does not matter within
 attention while type does. §3.3.2 shows the suffix curve confounds depth with count
 and that the flatness is two effects cancelling: one well-placed block beats six
-containing it by ≥1.55, and five same-size blocks span ≥9.4 points. **Cause: an
+containing it by 1.00 ± 0.96, and five same-size blocks span 8.89 points. **Cause: an
 instrument that varied two things at once, trusted as though it varied one.**
 
 The common thread is that each reading took a quantity averaged over an unmeasured
@@ -689,9 +710,9 @@ It is still two datasets, one draw each, with no seed spread on this arm.
 
 **§3.3.2 moves the EuroSAT row of this table, and the direction matters.** The
 table's "best" is the best of the *type* partition over three draws. The best
-configuration now known on EuroSAT is attention in block 8 alone, at ≥88.24 on one
-draw — so headroom there is **≥9.0, not 6.34**, and the best-single-intervention
-figure against `full_ft` rises from 165% to ≥280% of its gain. That does not weaken
+configuration now known on EuroSAT is attention in block 8 alone, at 87.69 on one
+draw — so headroom there is **8.47, not 6.34**, and the best-single-intervention
+figure against `full_ft` rises from 165% to **220%** of its gain. That does not weaken
 the claim in the box above; it strengthens it, because the configuration that now
 holds the ceiling adapts 2.75% of the backbone rather than 33%. But it does mean
 the ISIC/EuroSAT headroom *ratio* this section leans on is measured with a type
@@ -787,14 +808,17 @@ Explicitly, so none of this gets quoted as a result:
   simultaneously-adapted types is a description of that, not a mechanism, and
   nothing here measures it. The obvious probe — attention plus MLP, attention plus
   LayerNorm, pairwise — has not been run.
-* **The positional result's peak is a lower bound, and the sweep is five points.**
-  §3.3.2 answers the "one block means the LAST block" caveat this bullet used to
-  raise — a middle block beats the last one — but block 8's tuning grid topped out
-  at its highest point, so ≥88.24 is a floor and `run_vit_position_hi.sh` has not
-  been run. Block 0's grid is at its *bottom* edge for the same reason, unextended.
-  Five of twelve blocks are measured, one draw each, so the shape of the depth curve
-  between them is interpolation. Whether the peak sits at 8 specifically or anywhere
-  in 6–10 is not established, and nothing has been measured at a second seed.
+* **Whether the depth curve has an interior peak is NOT settled — only that it
+  rises.** §3.3.2 answers the "one block means the LAST block" caveat this bullet
+  used to raise, and block 8's grid edge is now closed (87.69 at an interior 3e-3).
+  But the fall from block 8 to block 11 is +1.19 ± 1.11 and block 8 over the
+  six-block suffix containing it is +1.00 ± 0.96: both clear their intervals and the
+  ~0.6 floor only just. **The monotone rise through block 8 is established; the
+  inverted U is not.** Block 0's grid remains at its *bottom* edge, unextended. Five
+  of twelve blocks are measured, one draw each, so the curve between them is
+  interpolation and whether the peak sits at 8 specifically or anywhere in 6–10 is
+  open. A second seed on the five depths is the cheapest thing that would settle it
+  and is the highest-value unrun item after the two sweeps below.
 * **The depth effect is one dataset.** Everything in §3.3.2 is EuroSAT, where
   `full_ft` loses. ISIC — twice the headroom, `full_ft` winning — has no positional
   sweep at all. If depth dominates there too, §3.5's headroom story has to be
