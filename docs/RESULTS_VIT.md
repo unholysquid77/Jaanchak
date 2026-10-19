@@ -392,6 +392,14 @@ inside it is 1.18. **Depth is a larger axis than type, by a factor of about seve
 against the type comparison and still clearly larger than the whole type range.**
 Both endpoints are now interior optima on their own grids, so this is a measurement
 rather than a bound (§3.3.2 point 4).
+
+**But read §3.3.5 before quoting any of it.** The same sweep on ISIC has depth
+mattering there too and pointing the *other* way — the shallow half is best, the deep
+end is worst, and no single block beats `full_ft` at all. So the part of this that is
+specific to EuroSAT is the part where a 2.75% slice beats everything bigger; the part
+that generalises is that *where* you adapt is a first-order choice. The two curves
+are roughly mirrored, which makes depth a lens on the shift rather than a property of
+the backbone.
 Every number that follows in §3.3.1 and §3.3.3 is a quantity averaged over depth,
 and §3.3.2 is why that averaging is the thing to be suspicious of.
 
@@ -610,8 +618,124 @@ instrument that varied two things at once, trusted as though it varied one.**
 The common thread is that each reading took a quantity averaged over an unmeasured
 axis and interpreted it as though the axis were not there. (a) averaged over the
 episode pairing, (b) and (c) over depth. The live reading in §3.3 is itself an
-average over *task* — EuroSAT only — and over seed, and both of those are named in
-§4 as the next things to break it.
+average over *seed*, which §4 names as the next thing to break it. It was also an
+average over *task* until §3.3.5, and that one did break: the depth effect holds on
+ISIC but with the curve mirrored and the single-slice win gone, so the claim had to
+be split into a part that generalises and a part that does not. Three retractions
+from reading past an unmeasured axis, and then a fourth axis measured and the claim
+narrowed before it was quoted — the pattern is the point.
+
+### 3.3.5 The same sweep on ISIC: depth matters there too, and it points the other way
+
+§3.3.2 is EuroSAT, where `full_ft` loses. §4 called the same sweep on ISIC — twice
+the headroom, `full_ft` winning — the single most informative unrun experiment on
+this arm. This is it: the same five depths, the same selector, the same protocol,
+one draw each at 100 episodes and 20 inner steps, each depth tuned separately over
+one wide six-point grid. `scripts/run_vit_position_isic.sh`.
+
+| block | lr | ISIC | frac_mod | EuroSAT (§3.3.2) |
+|---|---|---|---|---|
+| 0 | 3e-3 | 48.83 | 2.751 | 78.80 |
+| 2 | 1e-3 | 48.99 | 2.745 | 78.87 |
+| **5** | 1e-3 | **49.23** | 2.746 | 82.04 |
+| 8 | 1e-3 | 47.23 | 2.747 | **87.69** |
+| 11 | 3e-4 | 45.00 | 2.741 | 86.51 |
+| — `frozen_proto` | — | 39.35 | 0.000 | 79.27 |
+| — `attn_only_ft` (all 12) | 3e-4 | 50.20 | 32.3 | 85.96 |
+| — `full_ft` | 1e-4 | **52.49** | 83.3 | 83.24 |
+
+Every ISIC optimum is interior (block 0's upward extension is below), and `frac_mod`
+confirms all five interventions are the same size to within a hundredth of a point.
+
+Paired per-episode differences on ISIC, same seed so literally the same 100 episodes:
+
+| comparison | difference | |
+|---|---|---|
+| block 0 − `frozen_proto` | **+9.48 ± 1.41** | settled |
+| block 5 − `frozen_proto` | **+9.88 ± 1.81** | settled |
+| block 5 − block 11 | **+4.23 ± 1.51** | settled |
+| block 5 − block 8 | +2.00 ± 1.70 | settled |
+| block 11 − block 8 | −2.23 ± 1.28 | settled |
+| block 0 − `full_ft` | −3.67 ± 1.60 | settled |
+| block 2 − `full_ft` | −3.51 ± 1.54 | settled |
+| block 5 − `full_ft` | −3.27 ± 1.65 | settled |
+| block 11 − `full_ft` | −7.49 ± 1.46 | settled |
+| block 0 − `attn_only_ft` | −1.37 ± 1.64 | **not settled** |
+| block 2 − `attn_only_ft` | −1.21 ± 1.69 | **not settled** |
+| block 5 − `attn_only_ft` | −0.97 ± 1.60 | **not settled** |
+| block 0 − block 2 | −0.16 ± 1.57 | **not settled** |
+| block 2 − block 5 | −0.24 ± 1.48 | **not settled** |
+| block 0 − block 5 | −0.40 ± 1.46 | **not settled** |
+
+**1. Depth matters on ISIC, and the two curves are roughly mirrored.** ISIC is one
+flat plateau over blocks 0/2/5 — no pairwise difference among them settled, spread
+0.40 — and then falls away: block 5 beats block 11 by 4.23 ± 1.51. EuroSAT is flat
+over blocks 0/2 and then *rises*, block 8 beating block 5 by 5.65 ± 1.40. The useful
+depths are the shallow half on ISIC and the deep end on EuroSAT.
+
+The reversal is not a magnitude difference that the noise floor could produce.
+**block 5 − block 11 is +4.23 ± 1.51 on ISIC against −4.47 ± 1.29 on EuroSAT**:
+opposite signs, both settled, same selector at the same two depths under the same
+five-way 5-shot protocol.
+
+**2. The depth effect is about half the size under strong shift.** Spread across the
+five depths is 4.23 on ISIC against 8.89 on EuroSAT. Depth is real in both regimes;
+it is not equally decisive in both.
+
+**3. No single block beats `full_ft` on ISIC, and that is the cross-regime result.**
+The best ISIC depth loses to `full_ft` by 3.27 ± 1.65, where on EuroSAT the best
+depth *beat* it by 4.45 ± 1.24. So the headline of §3.3.2 — a 2.75% slice beating all
+85.8M parameters — is a **mild-shift** phenomenon, not a property of the backbone.
+Under strong shift, joint movement across parameter types earns its capacity.
+
+That is the same shape as §3.5's claim about shift magnitude, arrived at through a
+completely different partition, which is the strongest thing in this section: §3.5
+reached it by comparing parameter *types* across two datasets, and this reaches it by
+comparing *depths*. Two independent decompositions, same conclusion.
+
+**4. On ISIC one block ties all twelve.** Blocks 0, 2 and 5 are each
+indistinguishable from `attn_only_ft` (−1.37, −1.21, −0.97, none settled) while all
+of them lose to `full_ft`. So the ISIC shortfall is **not** a shortfall of attention
+capacity — twelve blocks of attention buy nothing over one well-placed block there
+either. What `full_ft` has that none of them do is *other parameter types*. This
+narrows §3.3.1's open question rather than answering it: whatever the other types
+contribute under strong shift, it is not something more attention can supply.
+
+**5. Block 0's grid edge, and what closing it cost the hypothesis.** Block 0 first
+tuned to 3e-3, the top of its grid, so 48.83 was a lower bound — and raising it was
+exactly what would have turned the plateau into the shallow-peaked rise that the
+reading in point 6 wanted. `scripts/run_vit_position_isic_hi.sh` extended it to 1e-2
+and 3e-2: **44.77 then 39.07**, both well below 3e-3's 50.05 on the tuning subset, so
+the optimum was already interior at 3e-3 and the edge report is now empty. The
+plateau is real and 48.83 stands. Per §3.3.2 point 4 this was checked *before* the
+section was written, not after.
+
+Worth recording for its own sake: **on EuroSAT block 0 pinned at the BOTTOM of its
+grid (3e-5, wanting almost no movement); on ISIC the same block pins near the TOP
+(3e-3).** Same selector, same depth, opposite ends of the same grid. That is a direct
+read on where each shift bites, and it does not depend on any accuracy comparison.
+
+**6. A hypothesis, and the form it survives in.** The obvious reading is that the
+depth at which adaptation pays tracks the depth at which the pretrained
+representation stops transferring: dermoscopy diverges from ImageNet-21k early, so
+ISIC needs early adaptation; EuroSAT is overhead RGB where low-level features carry
+over and only the task-specific top needs moving. That predicted ISIC blocks 2 and 0
+would be *at least as good* as block 5.
+
+They are — but as a **tie, not a rise**, so the prediction passes in its weak form
+only. The defensible statement is "on ISIC useful adaptation is available anywhere in
+the shallow half and is lost at the top", **not** "it concentrates early". The
+learning-rate inversion in point 5 is independent evidence for the mechanism and is
+the more interesting half of the case for it.
+
+**7. One methodological note, because it cost a retraction.** The first ISIC depth
+measured was block 8, chosen because it is EuroSAT's peak, and on that single point
+the conclusion drawn was that the depth advantage simply does not transfer. Block 5
+then came in 2.00 above block 8 and the reading had to be withdrawn. Picking the
+*other* dataset's optimum is a systematically bad way to test whether an optimum
+transfers: if the peak moves at all, that depth is close to the worst available
+probe, and the error runs toward "no effect here". Measure the curve, not the other
+dataset's argmax.
 
 ### 3.4 Three draws: both claims survive, and the test I was using was the wrong one
 
@@ -716,8 +840,16 @@ figure against `full_ft` rises from 165% to **220%** of its gain. That does not 
 the claim in the box above; it strengthens it, because the configuration that now
 holds the ceiling adapts 2.75% of the backbone rather than 33%. But it does mean
 the ISIC/EuroSAT headroom *ratio* this section leans on is measured with a type
-partition on one side and a positional one on the other until the positional sweep
-is run on ISIC, which §4 lists as unrun.
+partition on one side and a positional one on the other.
+
+**§3.3.5 closes that gap and the ratio survives.** The ISIC positional sweep is now
+run: its best depth is 49.23, so positional headroom there is 9.88 against EuroSAT's
+8.47 — much closer than the type-partition figures (13.24 against 8.47) made it look.
+What separates the two datasets is therefore *not* mainly how much a single
+well-placed intervention can get; it is whether anything beyond one is worth adding.
+On EuroSAT the best single depth beats `full_ft` by 4.45; on ISIC it loses by 3.27.
+That is a sharper version of the claim in the box above, and it is now measured with
+the *same* partition on both sides.
 
 
 ### 3.6 The inner-step test: the mechanism survives, and the headline strengthens
@@ -819,12 +951,24 @@ Explicitly, so none of this gets quoted as a result:
   interpolation and whether the peak sits at 8 specifically or anywhere in 6–10 is
   open. A second seed on the five depths is the cheapest thing that would settle it
   and is the highest-value unrun item after the two sweeps below.
-* **The depth effect is one dataset.** Everything in §3.3.2 is EuroSAT, where
-  `full_ft` loses. ISIC — twice the headroom, `full_ft` winning — has no positional
-  sweep at all. If depth dominates there too, §3.5's headroom story has to be
-  re-derived on a positional partition on both sides; if it does not, the depth
-  effect is a mild-shift phenomenon rather than a property of the backbone. This is
-  the single most informative unrun experiment on this arm.
+* **ANSWERED by §3.3.5, and the answer was "both".** Depth matters on ISIC too, but
+  the curve is mirrored (shallow best, deep worst) and no single depth beats
+  `full_ft` there. So the *depth effect* is a property of the backbone and the
+  *single-slice win* is a mild-shift phenomenon — the two halves of this bullet were
+  not alternatives. What remains open is narrower and now stated as its own entry:
+  five of twelve depths on each dataset, one draw each, and two datasets is still two
+  points on a shift axis that §4 already warns is a proxy.
+* **The depth curves are five points and one draw, on both datasets.** Whether
+  ISIC's plateau is flat or gently peaked, and whether EuroSAT's peak sits at 8
+  specifically or anywhere in 6–10, is interpolation. `scripts/run_vit_position_seed.sh`
+  adds seeds 1 and 2 to the EuroSAT curve and is what would settle the two marginal
+  claims in §3.3.2 and §3.3.3; the ISIC curve has no second draw planned yet. Every
+  grid edge on both curves is now closed except EuroSAT block 0's bottom edge.
+* **Nothing explains what `full_ft` has that attention does not, under strong shift.**
+  §3.3.5 point 4 sharpens the question: on ISIC one well-placed block ties all twelve
+  blocks of attention, and both lose to `full_ft` by ~3.3. So the shortfall is not
+  attention capacity at any depth or any count — it is the other parameter types. The
+  pairwise probe below is the experiment, and it is still unrun.
   `scripts/run_vit_position_isic.sh` exists and is unrun. Both it and the MLP sweep
   use one wide six-point grid at every depth rather than a window centred on the
   fraction-of-backbone heuristic, because the EuroSAT sweep showed that heuristic
