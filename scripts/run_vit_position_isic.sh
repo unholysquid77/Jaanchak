@@ -60,6 +60,25 @@ POS_LRS=${POS_LRS:-"1e-5 3e-5 1e-4 3e-4 1e-3 3e-3"}
 stage() { printf '\n========== %s  (%s) ==========\n' "$1" "$(date +%H:%M)"; }
 fail()  { printf '\n!!! ABORTING: %s\n' "$1"; exit 1; }
 
+# attn_block11_ft is deliberately NOT registered: on EuroSAT it selects exactly what
+# attn_last1_ft selects, and two names for one experiment is how a table ends up
+# quoting one measurement twice as if it were a replication
+# (tests/test_selectors_vit.py pins both facts). ISIC genuinely needs position 11 --
+# nothing positional has been measured here -- so it runs under the name that exists.
+# test_attn_block_11_is_attn_last_1 asserts the selectors are identical by name, so
+# this is the same experiment, not an approximation of it.
+#
+# This cost two GPU-hours: the first run of this script died at block 11 with
+# KeyError: 'attn_block11_ft' after blocks 8 and 5 had already finished. Hence the
+# preflight below -- a name that does not resolve must abort in seconds, not after
+# the cheap depths have burned an afternoon.
+baseline_for() {
+    case "$1" in
+        11) printf 'attn_last1_ft' ;;
+        *)  printf 'attn_block%s_ft' "$1" ;;
+    esac
+}
+
 # Guard the baseline list the same way run_vit_2b.sh does after the GROUPS incident:
 # the failure mode that cost four hours was a plausible WRONG list, not an empty one.
 for i in $POSITIONS; do
@@ -69,9 +88,24 @@ for i in $POSITIONS; do
     esac
 done
 
+# PREFLIGHT: every baseline name must resolve before any GPU work starts.
+for i in $POSITIONS; do
+    base=$(baseline_for "$i")
+    PYTHONPATH=src $PY - "$base" <<'PYEOF' || fail "baseline $(baseline_for "$i") is not registered (position $i)"
+import sys
+from arc.train.baselines import BASELINES
+name = sys.argv[1]
+if name not in BASELINES:
+    print(f"!!! {name!r} is not in BASELINES")
+    sys.exit(1)
+print(f"[preflight] {name} -> ok")
+PYEOF
+done
+
 run_pos() {
     local i="$1"
-    local base="attn_block${i}_ft"
+    local base
+    base=$(baseline_for "$i")
     local sweep="results/vit_isicpos${i}_lr"
     local out="results/vit_isicpos${i}"
 
@@ -131,6 +165,8 @@ for i in $POSITIONS; do
 done
 
 stage "ISIC positional sweep complete"
+echo "NOTE: results/vit_isicpos11 holds a file named for attn_last1_ft, not"
+echo "attn_block11_ft -- same selector, see baseline_for() above."
 echo "Compare results/vit_isicpos{0,2,5,8,11} against ISIC seed 0 in"
 echo "results/vit_2b_isic: frozen_proto 38.26-ish, full_ft the winner there."
 echo
