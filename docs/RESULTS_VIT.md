@@ -1006,6 +1006,30 @@ Explicitly, so none of this gets quoted as a result:
   notion of a "diagonal" correction has to be checked against LayerNorm affine
   rather than BatchNorm affine before any of it is trusted.
 
+### 4.1 An infrastructure bug that cost idle GPU time, recorded because it recurs
+
+A pattern passed to `pgrep -f` or `pkill -f` **matches the command line of the
+process doing the matching**, because that pattern is literally present in it. This
+has now bitten three times in one session:
+
+* `pkill -f tailscaled` killed the shell issuing it (the command line contains
+  "tailscaled"), returning exit 143 before the daemon was restarted.
+* A watcher polling `pgrep -cf run_vit_position_isic_hi` over ssh never saw the count
+  reach 0, because its own ssh wrapper matched. The job had finished 30 minutes
+  earlier and the GPU sat idle that whole time.
+* `pkill -f "scratchpad/chain.sh"` then killed the shell that was about to launch the
+  replacement job, so the launch silently did not happen.
+
+**The rule.** Use `pkill -x <name>` to match an executable name exactly. To wait on a
+job, poll the **sentinel file** the drivers already write (`results/<dir>/.done`) or
+`nvidia-smi` utilisation, never a process pattern — a sentinel cannot match the
+process asking about it. When a process pattern is unavoidable, confirm the finding
+against something else (the log's mtime, the output file) before acting on it.
+
+The deeper pattern is the same one §3.3.4 is about: a measurement that includes the
+measurer. There it was a statistic averaging over the axis being tested; here it is a
+process query matching the querying process. Both read as a clean signal.
+
 ## 5. Standing cautions inherited from the ResNet arm
 
 Three of the first four results in this project were single-draw artefacts, and
