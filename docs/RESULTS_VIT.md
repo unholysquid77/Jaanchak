@@ -1520,6 +1520,45 @@ The deeper pattern is the same one §3.3.4 is about: a measurement that includes
 measurer. There it was a statistic averaging over the axis being tested; here it is a
 process query matching the querying process. Both read as a clean signal.
 
+## 4.2 Two fields named `inner_lr`, and which one is real
+
+Recorded 2026-10-21 04:30 box, after it cost ten minutes and a false alarm.
+
+Reading `manifest.config.inner_lr` from the k=20 `full_ft` measurement gives
+**1e-04**, which is *attention's* tuned optimum, not full_ft's 3e-05. For a few
+minutes it looked as though the `--tuned` path was measuring every baseline at the
+wrong learning rate — i.e. that every headline number in the project was suspect.
+
+**It is not.** `manifest.config` is `vars(args)`, so its `inner_lr` is the CLI
+default echoed identically into every file. The rate actually used is the
+**top-level** `inner_lr`, written from `runner.inner_lr` after the tuned setting is
+applied (`experiments/run_baselines.py:266`), alongside a top-level `tuned` flag.
+The k=20 file reads top-level `inner_lr: 3e-05, tuned: true` — correct.
+
+The decisive check, worth keeping because it settles the question in one look:
+in `results/vit_2b_eurosat` all eight baselines report
+`manifest.config.inner_lr == 1e-04`, while their top-level values range over
+1e-06 to 0.03. A single shared value across eight baselines that were
+demonstrably tuned to different rates can only be a default.
+
+So the authoritative field is the top-level one, the misleading one is nested
+exactly where a reader looks for configuration, and **nothing should ever read a
+learning rate out of `manifest.config`.** `tests/test_results_provenance.py` pins
+this, and would fail loudly if the two ever silently converged.
+
+Two things that check bought beyond the scare:
+
+* Every one of 172 committed result files records both its effective `inner_lr`
+  and its `tuned` flag, so no measurement in the corpus is of unknown provenance.
+* **No committed result was measured on the test split.** That discipline now
+  rests on a test rather than on anyone remembering it, which is the right place
+  for it given it is the one thing in this project that cannot be undone.
+
+Note what this episode was *not*: it was not a wrong number in the document. It
+was a wrong field read by me, caught in the same turn, before anything was
+written down. The reason it is recorded anyway is that the next reader will look
+in the same place for the same reason.
+
 ## 5. Standing cautions inherited from the ResNet arm
 
 Three of the first four results in this project were single-draw artefacts, and
