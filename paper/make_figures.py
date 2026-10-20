@@ -36,6 +36,9 @@ ISIC_ATTN = {0: "vit_isicpos0", 2: "vit_isicpos2", 5: "vit_isicpos5", 8: "vit_is
              11: "vit_isicpos11"}
 SEED_DIRS = ["vit_poscurve_seeds", "vit_mlpposcurve_seeds", "vit_isicposcurve_seeds"]
 
+SHOT_DIRS = {1: "vit_shots1", 5: "vit_2b_eurosat", 20: "vit_shots20"}
+SHOT_REF_DIRS = {1: "vit_shotsref1", 5: "vit_shotsref5", 20: "vit_shotsref20"}
+
 
 def _load_dir(d: str, acc: dict) -> None:
     """Fill acc[(dataset, baseline, seed)] from every json in a results dir.
@@ -54,14 +57,29 @@ def _load_dir(d: str, acc: dict) -> None:
     """
     for f in glob.glob(f"results/{d}/*.json"):
         j = json.load(open(f))
-        ds = j.get("manifest", {}).get("config", {}).get("dataset")
+        c = j.get("manifest", {}).get("config", {})
+        ds = c.get("dataset")
         if ds is None:
             raise RuntimeError(
                 f"{f}: no manifest.config.dataset -- refusing to guess which dataset "
                 f"this is, because guessing is what produced the collision this "
                 f"function's docstring describes"
             )
-        key = (ds, j["baseline"], j.get("seed", 0))
+        # The key must carry the SHOT COUNT for the same reason it carries the
+        # dataset. The k-shot runs are all EuroSAT and reuse every baseline name
+        # (full_ft, attn_only_ft, ...), so on the three-field key the k=1 and k=20
+        # directories would have collided with the k=5 ones -- a fourth instance of
+        # this file's founding bug, on a new axis. It would have been caught rather
+        # than silent, because of the duplicate check below, but only if someone
+        # happened to load those directories; keying on k means the axis simply
+        # exists. k_shot is written as a list by run_baselines.py.
+        ks = c.get("k_shot")
+        if not isinstance(ks, list) or len(ks) != 1:
+            raise RuntimeError(
+                f"{f}: manifest.config.k_shot is {ks!r}, expected a one-element list. "
+                f"A multi-k run would need one record per k, not one per file."
+            )
+        key = (ds, ks[0], j["baseline"], j.get("seed", 0))
         if key in acc:
             raise RuntimeError(f"{f}: duplicate {key} -- two files claim the same cell")
         acc[key] = [e["accuracy"] * 100 for e in j["episodes"]]
@@ -71,7 +89,9 @@ def _episodes() -> dict:
     acc: dict = {}
     for d in (list(EURO_ATTN.values()) + list(EURO_MLP.values())
               + list(ISIC_ATTN.values()) + SEED_DIRS
-              + ["vit_2b_eurosat", "vit_2b_isic", "vit_seeds_eurosat", "vit_seeds_isic"]):
+              + ["vit_2b_eurosat", "vit_2b_isic", "vit_seeds_eurosat", "vit_seeds_isic"]
+              + [d for d in list(SHOT_DIRS.values()) + list(SHOT_REF_DIRS.values())
+                 if d != "vit_2b_eurosat"]):
         if os.path.isdir(f"results/{d}"):
             _load_dir(d, acc)
     return acc
@@ -83,27 +103,35 @@ ACC = _episodes()
 ALIAS = {"attn_block11_ft": "attn_last1_ft"}
 
 
-def mean_and_draws(ds: str, base: str):
-    """Three-draw mean where available, else the single draw. Returns (mean, n, sd)."""
+def mean_and_draws(ds: str, base: str, k: int = 5):
+    """Three-draw mean where available, else the single draw. Returns (mean, n, sd).
+
+    k defaults to 5 because every depth, type and capacity result in the paper is
+    5-shot; only the support-size section varies it.
+    """
     base = ALIAS.get(base, base)
-    vals = [st.mean(ACC[(ds, base, s)]) for s in (0, 1, 2) if (ds, base, s) in ACC]
+    vals = [st.mean(ACC[(ds, k, base, s)]) for s in (0, 1, 2) if (ds, k, base, s) in ACC]
     if not vals:
         return None, 0, None
     return st.mean(vals), len(vals), (st.stdev(vals) if len(vals) > 1 else None)
 
 
-def paired(ds: str, a: str, b: str):
-    """(difference, ci95, n_draws) WITHIN one dataset. Per-seed across draws where
-    three exist, else per-episode within the single draw."""
+def paired(ds: str, a: str, b: str, k: int = 5):
+    """(difference, ci95, n_draws) WITHIN one dataset AND one shot count.
+
+    Per-seed across draws where three exist, else per-episode within the single draw.
+    Both arms must share k: the episodes are only identical, and the comparison only
+    paired, within one (dataset, k) cell.
+    """
     a, b = ALIAS.get(a, a), ALIAS.get(b, b)
-    shared = [s for s in (0, 1, 2) if (ds, a, s) in ACC and (ds, b, s) in ACC]
+    shared = [s for s in (0, 1, 2) if (ds, k, a, s) in ACC and (ds, k, b, s) in ACC]
     if len(shared) >= 3:
-        d = [st.mean(ACC[(ds, a, s)]) - st.mean(ACC[(ds, b, s)]) for s in shared]
+        d = [st.mean(ACC[(ds, k, a, s)]) - st.mean(ACC[(ds, k, b, s)]) for s in shared]
         return st.mean(d), T2 * st.stdev(d) / math.sqrt(len(d)), len(d)
     if not shared:
         return None, None, 0
     s = shared[0]
-    d = [x - y for x, y in zip(ACC[(ds, a, s)], ACC[(ds, b, s)])]
+    d = [x - y for x, y in zip(ACC[(ds, k, a, s)], ACC[(ds, k, b, s)])]
     return st.mean(d), T99 * st.stdev(d) / math.sqrt(len(d)), 1
 
 
@@ -178,6 +206,38 @@ def fig_inner_steps() -> None:
     write("inner_steps.dat", "steps attn full", rows)
 
 
+def fig_shots() -> None:
+    """Support-size sweep: does the attention advantage grow with k, as predicted?
+
+    Emitted with the frozen reference in its own column precisely because the k=1
+    reading is ambiguous without it. k=1 gave attn - full_ft = +1.25 against +2.72 at
+    k=5 -- the gap SHRANK where the over-optimisation story said it should grow. But
+    "the prediction failed" and "at k=1 nothing adapts, so there is no gap to have"
+    are observationally identical from those two rows alone. If attn and full_ft both
+    sit near frozen at k=1, it is a floor, not a refutation.
+
+    frozen may be absent (run_vit_shots_ref.sh has not run); the column then reads
+    "nan" and the row still carries its draw count, so a reader cannot mistake a
+    missing reference for a measured one. Rows for a k whose run has not finished are
+    omitted entirely rather than emitted empty.
+    """
+    rows = []
+    for k in sorted(SHOT_DIRS):
+        a, na, _ = mean_and_draws("eurosat", "attn_only_ft", k)
+        f_, nf, _ = mean_and_draws("eurosat", "full_ft", k)
+        if a is None or f_ is None:
+            print(f"    SKIP k={k} (no measurement yet)")
+            continue
+        fr, nfr, _ = mean_and_draws("eurosat", "frozen_proto", k)
+        d, ci, nd = paired("eurosat", "attn_only_ft", "full_ft", k)
+        frs = f"{fr:.2f}" if fr is not None else "nan"
+        rows.append(f"{k} {a:.2f} {f_:.2f} {frs} {d:+.2f} {ci:.2f} {nd} {min(na, nf)}")
+    if rows:
+        write("shots.dat", "k attn full frozen gap ci95 draws arm_draws", rows)
+    else:
+        print("    SKIP shots.dat entirely -- no k cells loaded")
+
+
 def key_numbers() -> None:
     """Every inline number the paper quotes, with dataset and draw count."""
     comps = [
@@ -217,5 +277,6 @@ if __name__ == "__main__":
     fig_depth_curves()
     fig_params_vs_acc()
     fig_inner_steps()
+    fig_shots()
     key_numbers()
     print("done. Draw counts above; a caption must not claim more draws than listed.")
