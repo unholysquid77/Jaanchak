@@ -1,7 +1,16 @@
 # The ViT arm
 
-**Validation split only. No test numbers here.** ViT-B/16 `augreg_in21k` (what SSF,
-LN-Tune and DIPA report), 5-shot, 20 inner steps, `--no-amp` throughout, each
+**Validation split only. No test numbers here.** ViT-B/16 `augreg_in21k`
+(**CORRECTED 2026-10-20**: this was described here and in the draft as "what SSF,
+LN-Tune and DIPA report". That is false. Checked against the papers: SSF (Lian et al.,
+NeurIPS 2022) does use a ViT-B/16 ImageNet-21k timm checkpoint but evaluates on FGVC
+and VTAB-1k, which are not episodic few-shot at all; LN-Tune (Basu et al., AAAI 2024)
+reports on Meta-Dataset and ORBIT; DIPA (Perera & Halgamuge, CVPR 2024) uses
+**ViT-S/16 with DINO self-supervised pretraining**, a different size *and* a different
+pretraining objective. No comparator shares both our checkpoint and our protocol. The
+checkpoint choice is still fine -- a strong, standard, publicly available supervised
+IN-21k ViT-B/16 -- but it is *our* choice, not an inherited comparability guarantee,
+and no number of theirs is directly comparable to ours. See §4.), 5-shot, 20 inner steps, `--no-amp` throughout, each
 dataset on its own split fractions matching the ResNet arm. Driver:
 `scripts/run_vit.sh`. Raw output under `results/vit_lr_*`.
 
@@ -1255,6 +1264,21 @@ unrun.
 
 Explicitly, so none of this gets quoted as a result:
 
+* **Nothing here is comparable to SSF, LN-Tune or DIPA, and the header's old claim
+  that we share their checkpoint was false** (checked against the papers
+  2026-10-20; see the correction at the top of this file). SSF (Lian et al.,
+  NeurIPS 2022) uses a ViT-B/16 IN-21k checkpoint but evaluates on FGVC and
+  VTAB-1k, which are not episodic few-shot; LN-Tune (Basu et al., AAAI 2024)
+  reports on Meta-Dataset and ORBIT; DIPA (Perera & Halgamuge, CVPR 2024) uses
+  ViT-S/16 with DINO self-supervised pretraining. Backbone, pretraining
+  objective, benchmark and episode protocol all differ, so a table of their
+  numbers beside ours would compare four things while looking like one. Closing
+  this needs re-running all three under our protocol; until then the positioning
+  claim is internal only — our own ResNet replication is the stand-in for "what
+  the type literature implies". **How this got in: the sentence was written once,
+  early, from memory, and then copied into two more files and the draft without
+  anyone opening a paper.** Same family as every other entry in the standing
+  lessons — an unverified claim occupying the slot where a checked one belongs.
 * **Both headline margins now rest on three draws, which is the floor, not a
   luxury.** §3.4 settles their *direction* decisively (every draw, both datasets).
   It does not make three draws many: `frozen_proto` on ISIC moved 1.91 points

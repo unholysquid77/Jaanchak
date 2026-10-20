@@ -90,14 +90,29 @@ Our contributions:
 
 \paragraph{Protocol.} 5-way 5-shot, 15 queries per class, $100$ episodes per draw,
 three draws (episode-sampling seeds $0,1,2$) at a fixed train/val/test partition.
-Inner loop: $20$ Adam steps on the support set, then a cosine ProtoNet head on the
-query set. Backbone ViT-B/16 \texttt{augreg\_in21k}, the checkpoint SSF, LN-Tune and
-DIPA report on. Splits are \emph{group-disjoint} --- partitioned by source
-specimen, never by image.
+Inner loop: $20$ Adam steps on the support set, then a cosine ProtoNet head~\cite{snell2017} on the
+query set. Backbone ViT-B/16 \texttt{augreg\_in21k}~\cite{dosovitskiy2021,steiner2022}:
+a standard supervised ImageNet-21k checkpoint, chosen for being strong and public. We
+state plainly that it is \emph{our} choice and not a shared setting with any comparator
+(Section~\ref{sec:related}).
 
-\paragraph{Datasets.} EuroSAT (overhead RGB, $10$ classes) and ISIC~2018 (dermoscopy,
-$7$ classes), both from BSCD-FSL. ChestX was unobtainable.
-\TODO{cite BSCD-FSL, EuroSAT, ISIC; state the exact split fractions}
+\paragraph{Datasets and splits.} EuroSAT~\cite{helber2019} (overhead RGB, $10$ classes,
+$27{,}000$ tiles) and ISIC~2018~\cite{tschandl2018,codella2019} (dermoscopy, $7$ classes,
+$10{,}015$ images), both target sets of the BSCD-FSL cross-domain
+benchmark~\cite{guo2020}. CropDiseases was out of scope and ChestX was unobtainable, so
+the shift ladder has two rungs rather than four --- see Section~\ref{sec:limitations}.
+
+Both are partitioned $60/20/20$ train/val/test by
+\emph{group} at a fixed partition seed, giving EuroSAT $16{,}200/5{,}400/5{,}400$ images
+and ISIC $6{,}021/1{,}987/2{,}007$ images; all classes are present in every split of both.
+The grouping key differs, and the difference matters. On ISIC it is the \texttt{lesion\_id}
+from the HAM10000 metadata, so the $10{,}015$ images collapse to $7{,}470$ lesions
+($4{,}482/1{,}494/1{,}494$) and group-disjointness is load-bearing: roughly a quarter of
+images share a lesion with another image, and splitting by image would put two views of
+one lesion on opposite sides of the partition. On EuroSAT each tile is an independent
+sample, so the group is the image and the group-disjoint split \emph{reduces to} a plain
+random image split. We note this rather than describing both as ``partitioned by
+specimen'', which would be true of only one of them.
 
 \paragraph{Statistics, and why they are stated explicitly.}
 Our episode sampler seeds \emph{per episode}, so within a draw every baseline is
@@ -298,18 +313,36 @@ full fine-tuning should help it while not helping attention.
 \TODO{fold in k-shot and weight-decay results}
 
 \section{Relation to the parameter-type literature}
+\label{sec:related}
 
-\TODO{this section is a sketch}
+\TODO{this section is still thin on positioning; the comparability statement below is final}
 On ResNet-50 we find what the type literature implies: a $0.75$-point band across a
 $778\times$ range of trainable parameter counts, replicated on both datasets, with
 adaptation $\approx 90\%$ a per-channel affine and near rank-$1$ at the top of the
 network. We now read that null as \emph{regime-specific} rather than general: it was
 measured on ISIC, the strong-shift setting, where our ViT results also show placement
 mattering least and joint adaptation paying most.
-\TODO{SSF / LN-Tune / DIPA comparator numbers on our splits, or an explicit statement
-that we compare against published numbers on different splits}
+\paragraph{We do not report comparator numbers, and why.}
+The three methods this work is positioned against do not share a setting with us, and we
+checked rather than assumed. SSF~\cite{lian2022} tunes per-channel scale and shift on a
+ViT-B/16 ImageNet-21k checkpoint --- the same checkpoint family we use --- but evaluates
+on FGVC and VTAB-1k, which are not episodic few-shot benchmarks. LN-Tune~\cite{basu2024}
+tunes LayerNorm only, the direct analogue of the baseline our ResNet result turns on, and
+reports on Meta-Dataset and ORBIT. DIPA~\cite{perera2024} uses ViT-S/16 with DINO
+self-supervised pretraining: a different capacity \emph{and} a different pretraining
+objective.
+
+Backbone, pretraining objective, benchmark and episode protocol therefore all differ,
+and a table placing their published accuracies beside ours would compare four things at
+once while appearing to compare one. Re-running all three under our protocol is the
+right experiment and we have not done it; until then we make no quantitative claim
+against them. What we do claim is independent of them: it is an \emph{internal}
+comparison, every arm of which is run by us under one protocol, in which placement
+beats full fine-tuning and beats parameter-type choice. Our baseline for ``what the type
+literature implies'' is our own ResNet replication, not their numbers.
 
 \section{Limitations}
+\label{sec:limitations}
 
 \begin{itemize}
   \item \textbf{Validation split only.} Every number here is validation. The test-split
@@ -336,5 +369,67 @@ No number in a figure or table was transcribed by hand. The lab record, includin
 instances of a single-draw result moving under additional draws (four promoted, three
 demoted) and four retracted readings of our own data with the cause of each, is kept in
 \texttt{docs/RESULTS\_VIT.md}.
+
+\begin{thebibliography}{9}
+
+\bibitem{basu2024}
+S.~Basu, D.~Massiceti, S.~X.~Hu, and S.~Feizi.
+\newblock Strong baselines for parameter-efficient few-shot fine-tuning.
+\newblock In \emph{AAAI Conference on Artificial Intelligence}, 2024.
+  arXiv:2304.01917.
+
+\bibitem{codella2019}
+N.~Codella et~al.
+\newblock Skin lesion analysis toward melanoma detection 2018: A challenge hosted by the
+  International Skin Imaging Collaboration (ISIC).
+\newblock arXiv:1902.03368, 2019.
+
+\bibitem{dosovitskiy2021}
+A.~Dosovitskiy et~al.
+\newblock An image is worth 16x16 words: Transformers for image recognition at scale.
+\newblock In \emph{International Conference on Learning Representations}, 2021.
+
+\bibitem{guo2020}
+Y.~Guo et~al.
+\newblock A broader study of cross-domain few-shot learning.
+\newblock In \emph{European Conference on Computer Vision}, 2020.
+
+\bibitem{helber2019}
+P.~Helber, B.~Bischke, A.~Dengel, and D.~Borth.
+\newblock EuroSAT: A novel dataset and deep learning benchmark for land use and land
+  cover classification.
+\newblock \emph{IEEE Journal of Selected Topics in Applied Earth Observations and Remote
+  Sensing}, 2019.
+
+\bibitem{lian2022}
+D.~Lian, D.~Zhou, J.~Feng, and X.~Wang.
+\newblock Scaling \& shifting your features: A new baseline for efficient model tuning.
+\newblock In \emph{Advances in Neural Information Processing Systems}, 2022.
+  arXiv:2210.08823.
+
+\bibitem{perera2024}
+R.~Perera and S.~Halgamuge.
+\newblock Discriminative sample-guided and parameter-efficient feature space adaptation
+  for cross-domain few-shot learning.
+\newblock In \emph{IEEE/CVF Conference on Computer Vision and Pattern Recognition}, 2024.
+
+\bibitem{snell2017}
+J.~Snell, K.~Swersky, and R.~Zemel.
+\newblock Prototypical networks for few-shot learning.
+\newblock In \emph{Advances in Neural Information Processing Systems}, 2017.
+
+\bibitem{steiner2022}
+A.~Steiner, A.~Kolesnikov, X.~Zhai, R.~Wightman, J.~Uszkoreit, and L.~Beyer.
+\newblock How to train your ViT? Data, augmentation, and regularization in vision
+  transformers.
+\newblock \emph{Transactions on Machine Learning Research}, 2022.
+
+\bibitem{tschandl2018}
+P.~Tschandl, C.~Rosendahl, and H.~Kittler.
+\newblock The HAM10000 dataset, a large collection of multi-source dermatoscopic images
+  of common pigmented skin lesions.
+\newblock \emph{Scientific Data}, 5:180161, 2018.
+
+\end{thebibliography}
 
 \end{document}

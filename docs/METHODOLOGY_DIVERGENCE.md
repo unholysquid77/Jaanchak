@@ -105,8 +105,17 @@ rather than worked around — two datasets cannot establish a monotone relations
 between shift magnitude and anything.
 
 The original "forensic evidence recognition" framing was dropped in favour of standard
-BSCD-FSL benchmarks. The honest reason is comparability: SSF, LN-Tune and DIPA report on
-these, and a result on a bespoke forensic corpus would not be checkable against them.
+BSCD-FSL benchmarks. The reason first written here was comparability -- "SSF, LN-Tune and
+DIPA report on these" -- and **that was wrong** (checked 2026-10-20): SSF reports on FGVC
+and VTAB-1k, LN-Tune on Meta-Dataset and ORBIT, DIPA on Meta-Dataset with a ViT-S/16 DINO
+backbone. Not one of the three reports on BSCD-FSL with our checkpoint and protocol.
+
+The real reason stands up better anyway, and is the one to state: BSCD-FSL is a
+*published, fixed* benchmark with a documented shift ladder, so the datasets were chosen
+before any of our results existed and cannot have been selected to flatter them. A
+bespoke forensic corpus would have given us that freedom, which is exactly the problem.
+Comparability against those three is not something we have -- see §4 of the draft, which
+now says so explicitly instead of implying a shared setting.
 
 ### 3.4 Protocol: 600 episodes × 3 seeds → 100 × 3
 
