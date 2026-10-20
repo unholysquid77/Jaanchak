@@ -780,13 +780,26 @@ completely different partition, which is the strongest thing in this section: §
 reached it by comparing parameter *types* across two datasets, and this reaches it by
 comparing *depths*. Two independent decompositions, same conclusion.
 
-**4. On ISIC one block ties all twelve.** Blocks 0, 2 and 5 are each
-indistinguishable from `attn_only_ft` (−1.37, −1.21, −0.97, none settled) while all
-of them lose to `full_ft`. So the ISIC shortfall is **not** a shortfall of attention
-capacity — twelve blocks of attention buy nothing over one well-placed block there
-either. What `full_ft` has that none of them do is *other parameter types*. This
-narrows §3.3.1's open question rather than answering it: whatever the other types
-contribute under strong shift, it is not something more attention can supply.
+**4. On ISIC one block LOSES to all twelve — corrected from a single-draw tie.**
+At seed 0, blocks 0, 2 and 5 are each indistinguishable from `attn_only_ft` (−1.37,
+−1.21, −0.97, none settled), and an earlier version of this point read that as a tie
+and concluded the ISIC shortfall is *not* about attention capacity. **Three draws
+overturn it**: `block 5 − attn_only_ft = −1.52 ± 1.30`, every draw negative
+(−0.97, −2.01, −1.56), settled.
+
+So under strong shift, twelve blocks of attention **do** buy something over one
+well-placed block — about a point and a half — and the honest statement is that the
+ISIC shortfall has *two* components, not one: part is attention capacity, and part is
+the other parameter types (one block still loses to `full_ft` by 3.72 ± 1.03, three
+draws, which is more than the 1.52 that extra attention recovers). That is a weaker
+and more complicated claim than the tie, and it narrows §3.3.1's open question less
+than I said it did.
+
+This was caught by `paper/make_figures.py` recomputing every quoted number from
+`results/` rather than copying it, which is the argument for generating figures from
+source. It is the **seventh** single-draw link to move under draws (four promoted,
+three demoted — see §3.3.6b), and the first found by a consistency check rather than
+by running the draws for their own sake.
 
 **5. Block 0's grid edge, and what closing it cost the hypothesis.** Block 0 first
 tuned to 3e-3, the top of its grid, so 48.83 was a lower bound — and raising it was
@@ -1284,6 +1297,12 @@ Explicitly, so none of this gets quoted as a result:
   has not been measured on ISIC at all**, so it is one dataset; both curves are five
   of twelve depths; and whether MLP's margin genuinely falls at block 11 or merely
   stops rising needs either a fourth draw or a depth between 8 and 11.
+* **CORRECTED: the strong-shift shortfall is partly attention capacity after all.**
+  §3.3.5 point 4 used to say twelve blocks of attention buy nothing over one on ISIC,
+  on a single-draw tie. Three draws make it −1.52 ± 1.30, settled, so extra attention
+  recovers ~1.5 of the ~3.7 points one block gives away to `full_ft` there. The
+  remainder is still unexplained and still points at the other parameter types, but
+  the clean "it is not capacity" reading is gone.
 * **Nothing here explains why other types are harmful alongside attention.**
   `mlp_only_ft` (84.76) and `ln_only_ft` (84.75) each beat frozen comfortably on
   their own, yet adding them to attention costs 2.72. Interference between
