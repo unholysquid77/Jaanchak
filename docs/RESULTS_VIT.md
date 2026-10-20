@@ -401,8 +401,10 @@ highest number in this document, from 5.5% of the backbone). So "attention is th
 active ingredient", which earlier versions of this section claimed, is **retracted**;
 see §3.3.4 reading (d). What generalises is that **one well-placed block of either
 type beats every larger configuration, and a badly placed block of either type does
-not**. Type still matters once depth is fixed, but it *changes sign with depth*
-(§3.3.6 point 3), so it is an interaction term and not a ranking.
+not**. Type still matters once depth is fixed: MLP is ahead at every depth measured
+and settledly behind at none, by a margin that varies 3.6× across depth (§3.3.6b).
+An earlier reading had that margin *changing sign* at block 11; three draws demoted
+it to unsettled, so the interaction is in the magnitude and not the sign.
 
 **And read §3.3.5 before quoting any of it.** The same sweep on ISIC has depth
 mattering there too and pointing the *other* way — the shallow half is best, the deep
@@ -447,13 +449,15 @@ interval well clear of zero. On ISIC the two are indistinguishable.
 
 > **What this comparison is actually averaging over, per §3.3.6.** Whole-type
 > adaptation touches all twelve blocks, so `attn − mlp` moves type *and* the depth
-> distribution together. Measured depth by depth, MLP − attention runs **+2.56,
-> +1.83, +4.08, +1.21, −1.33** at blocks 0, 2, 5, 8, 11 — MLP ahead at four depths
-> and behind at one, every one settled. The whole-type average has the opposite sign
-> from four of its five constituent depths, because whole-type MLP suffers more from
-> adapting twelve blocks at once than whole-type attention does. So **+1.18 is a real
-> property of the whole-type baselines and a misleading guide to the types
-> themselves.** It is the last of the four averaging errors §3.3.4 collects, and the
+> distribution together. Measured depth by depth over **three draws** (§3.3.6b),
+> MLP − attention runs **+1.51, +2.03, +4.66, +1.29, −0.96** at blocks 0, 2, 5, 8,
+> 11 — settled and positive at three of them, unsettled at the other two, and
+> **settledly negative at none**. So whole-type attention beats whole-type MLP while
+> attention never demonstrably beats MLP at any single depth. The resolution is that
+> whole-type MLP adapts 66% of the backbone against attention's 33% and so suffers
+> more from §3.3.3's interference term; that penalty is what this average measures.
+> So **`attn − mlp` is a fact about adapting all twelve blocks at once and carries no
+> information about which type is better to adapt at a given depth.** It is the last of the four averaging errors §3.3.4 collects, and the
 > only one caught before it was promoted to a claim about mechanism.
 
 The whole type axis on EuroSAT, three-draw means where available:
@@ -947,11 +951,15 @@ attention: a flat shallow region, a steep rise, an interior peak at 8, a fall at
 11.** Two parameter types, two independent sweeps, one shape. That is what makes
 depth a property of the backbone rather than a fact about attention.
 
-**3. But type is NOT free once depth is fixed, and it changes sign.** MLP wins at
-blocks 0, 2, 5 and 8 and **loses at block 11**, all five settled, at twice the
-parameters throughout. So neither "MLP is better" (it loses at 11) nor "bigger is
-better" (same row) survives. There is a real type × depth interaction, and the flip
-is specific to the last block.
+**3. Type is not free once depth is fixed — but the sign flip does NOT survive
+draws.** At one draw MLP wins at blocks 0, 2, 5, 8 and loses at block 11, all five
+settled, which read as an interaction that changes sign. **§3.3.6b corrects this**:
+with three draws MLP − attention at block 11 is −0.96 ± 1.61, *not settled*, and
+blocks 0 and 11 are both unsettled. The surviving claim is that **MLP is ahead at
+every depth measured and never settledly behind, with a margin that varies by a
+factor of 3.6 across depth** (+1.29 to +4.66 among settled cells). The interaction
+is in the magnitude, not the sign. Read §3.3.6b before quoting any cell of this
+column.
 
 > **This is what §3.3.1's `attn − mlp` = +1.18 was averaging over.** That comparison
 > moves both type *and* the implicit depth distribution at once: whole-type
@@ -997,6 +1005,77 @@ directions and both were closed on the same rule. Choosing which edges to chase 
 how they lean is how a result stops being a measurement — so the driver reads the
 edge report rather than a depth list, skips interior optima, and refuses to extend a
 *bottom* edge upward rather than guessing at it.
+
+### 3.3.6b Three draws of the MLP curve: the sign flip does not survive
+
+§3.3.6 was single-draw, so §4 recorded that the type × depth interaction inherited
+the weaker of the two curves' draw counts. Seeds 1 and 2 at the seed-0 tuned learning
+rates, `--split-seed` 0, block 5 at its post-extension 3e-3.
+`scripts/run_vit_position_mlp_seed.sh`.
+
+| | seed 0 | seed 1 | seed 2 | mean | sd |
+|---|---|---|---|---|---|
+| block 0 | 81.36 | 79.57 | 79.88 | 80.27 | 0.96 |
+| block 2 | 80.69 | 80.31 | 81.03 | 80.68 | 0.36 |
+| block 5 | 86.12 | 86.83 | 86.39 | 86.44 | 0.36 |
+| **block 8** | 88.91 | 88.69 | 88.76 | **88.79** | 0.11 |
+| block 11 | 85.17 | 84.48 | 85.32 | 84.99 | 0.45 |
+
+**The MLP curve's own structure is settled at every link**, and more tightly than
+attention's: `b5 − b2 = +5.77 ± 1.62`, `b8 − b5 = +2.34 ± 1.14`,
+`b8 − b11 = +3.80 ± 0.97`, `b8 − b0 = +8.52 ± 2.11`. Span 8.52 against attention's
+8.85, and **the argmax is block 8 in all three draws** — unlike ISIC's plateau, whose
+argmax moved (§3.3.5a). So the interior peak at block 8 is now established in *two*
+parameter types independently.
+
+Now the interaction, three draws on both types:
+
+| depth | MLP | attn | MLP − attn | per-draw | |
+|---|---|---|---|---|---|
+| 0 | 80.27 | 78.76 | +1.51 ± 2.30 | +2.56, +1.15, +0.81 | **not settled** |
+| 2 | 80.68 | 78.64 | **+2.03 ± 0.57** | +1.83, +1.99, +2.28 | settled |
+| 5 | 86.44 | 81.78 | **+4.66 ± 1.84** | +4.08, +5.49, +4.41 | settled |
+| 8 | 88.79 | 87.49 | **+1.29 ± 0.68** | +1.21, +1.07, +1.60 | settled |
+| 11 | 84.99 | 85.95 | −0.96 ± 1.61 | −1.33, −1.33, −0.21 | **not settled** |
+
+> **The sign flip at block 11 is NOT settled, and §3.3.6 point 3 is corrected here.**
+> At one draw it read −1.33 ± 0.85, settled. Three draws give **−0.96 ± 1.61**: all
+> three per-draw values are negative, but seed 2's −0.21 widens the interval through
+> zero. So "MLP loses to attention at the last block" is **suggested and not
+> established**, and the claim that the interaction *changes sign* with depth is
+> withdrawn.
+
+**What the interaction actually is, stated at the strength the data supports.** MLP
+is **ahead at every depth measured** — settled at blocks 2, 5 and 8, unsettled at 0
+and 11, and **never settledly behind**. What varies with depth is the *margin*, and
+it varies a lot: among the settled cells it runs **+1.29 to +4.66, a factor of
+3.6**, peaking in the middle of the stack and shrinking at both ends. So the
+interaction is in the **magnitude**, not the sign. That is a weaker claim than
+§3.3.6 made and a different one: there is no depth at which the better parameter
+type demonstrably reverses.
+
+**This makes §3.3.1's puzzle sharper rather than softer.** Whole-type attention beats
+whole-type MLP by +1.18 ± 0.42 (three draws, §3.3.1) — yet at **no single depth does
+attention settledly beat MLP**, and at three of five depths MLP settledly wins. A
+whole-type comparison and a per-depth comparison of the same two types point opposite
+ways. The resolution is not that one is wrong: whole-type MLP adapts 66% of the
+backbone against attention's 33%, so it suffers more from §3.3.3's interference term,
+and that penalty is what the whole-type average measures. **`attn − mlp` is a fact
+about adapting all twelve blocks at once, and carries no information about which type
+is better to adapt at a given depth.**
+
+**Sixth link to move under draws, and the tally is now even.** §3.3.2a promoted two
+marginal EuroSAT links; §3.3.5a demoted one ISIC link; this demotes one MLP link.
+Three up, three down. The lesson §3.3.5a drew stands and is worth repeating because
+it is counter-intuitive: **single draws are uninformative about links near the floor
+in either direction**, so a marginal single-draw result should be written as marginal
+rather than guessed at, and the guess should not be the optimistic one.
+
+**What this costs and what it does not.** §3.3's framing is unaffected: depth is still
+the dominant axis, the peak at block 8 is now established in two types, and one
+well-placed block of either type still beats every larger configuration. What is lost
+is the claim that type *reverses* with depth — a detail of the interaction, not its
+existence.
 
 ### 3.4 Three draws: both claims survive, and the test I was using was the wrong one
 
@@ -1197,13 +1276,14 @@ Explicitly, so none of this gets quoted as a result:
   usefulness is also concentrated at a particular depth. If it is, the claim becomes
   a property of the block index independent of what is adapted there, which is
   stronger than anything currently written.
-* **The type × depth interaction is five depths, one draw, one dataset.** §3.3.6
-  establishes that MLP − attention changes sign with depth (+2.56, +1.83, +4.08,
-  +1.21, −1.33 at blocks 0/2/5/8/11, all settled per-episode at seed 0). What is NOT
-  established is the shape of that interaction: whether the flip is specific to block
-  11 or begins somewhere between 8 and 11, whether it replicates across draws, and
-  whether it exists at all on ISIC. The attention curve has three draws (§3.3.2a) and
-  the MLP curve has one, so the interaction inherits the weaker of the two.
+* **ANSWERED, and the answer was narrower than the single draw suggested.** §3.3.6b
+  gives the MLP curve three draws. The sign flip at block 11 is **demoted to
+  unsettled** (−0.96 ± 1.61), so the interaction is in the *magnitude* (+1.29 to
+  +4.66 among settled cells, a factor of 3.6) and not the sign; MLP is ahead at every
+  depth measured and settledly behind at none. What remains open: **the interaction
+  has not been measured on ISIC at all**, so it is one dataset; both curves are five
+  of twelve depths; and whether MLP's margin genuinely falls at block 11 or merely
+  stops rising needs either a fourth draw or a depth between 8 and 11.
 * **Nothing here explains why other types are harmful alongside attention.**
   `mlp_only_ft` (84.76) and `ln_only_ft` (84.75) each beat frozen comfortably on
   their own, yet adding them to attention costs 2.72. Interference between
