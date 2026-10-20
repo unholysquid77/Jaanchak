@@ -1260,6 +1260,62 @@ unrun.
 
 ---
 
+### 3.7 Support size: the decision rule, written before the result
+
+**This section was written at 2026-10-21 02:25 box, while the k=20 job was on
+config 11 of 12 and no measurement existed.** It is a pre-registration, and it
+exists because the tuning rows already visible are suggestive enough that reading
+them is a temptation, and because the rule that governs them depends on something
+that has not happened yet.
+
+The prediction under test (§3.5): if the attention advantage comes from full
+fine-tuning over-optimising a small support set, the advantage should **shrink as
+k grows**, because a larger support set gives the large parameter group something
+real to fit.
+
+What is already measured:
+
+| k | attn | full_ft | frozen | attn − full_ft | draws |
+|---|------|---------|--------|----------------|-------|
+| 1 | 62.15 | 60.89 | *not run* | +1.25 ± 1.18 | 1 |
+| 5 | 85.56 | 83.07 | 79.22 | +2.50 ± 0.64 | 3 |
+
+So k=1 already went the **wrong way** — the gap is smaller at k=1, not larger.
+Note the k=5 gap is +2.50 ± 0.64 over three draws; the +2.72 quoted in earlier
+notes is the seed-0 single draw, and the two must not be mixed.
+
+**The rule, fixed in advance:**
+
+1. **If the k=20 attention grid is at its top edge** — argmax at lr=3e-04, the
+   last point — the k=20 number is **not readable** and no conclusion about
+   support size may be drawn from it. The grid is extended upward and the cell is
+   re-run first. This is live: at the time of writing, `attn_only_ft` reads 0.9344
+   at 3e-05 and **0.9421 at 1e-04, still rising**, with one point left. `full_ft`
+   peaked at 3e-05 (0.9448) and fell to 0.9219 at 1e-04, so it is bracketed.
+   Note which way this leans: an attention grid cut off while still rising
+   **understates attention**, which biases the comparison toward "full_ft wins at
+   k=20", which is the direction that would make the prediction fail. The edge
+   would flatter the conclusion. §2 fact 4, and the one that cost us a headline
+   once already.
+2. **If the grid is bracketed and the gap at k=20 is smaller than at k=5**, the
+   support-size prediction has failed in direction at both ends. The relationship
+   is then not monotone in k, which no version of the over-optimisation story
+   predicts. §3.5 gets rewritten as a **description** of where the effect is
+   found, not a mechanism for why — and is reported as such, not quietly reframed.
+3. **If the gap at k=20 is larger than at k=5**, the prediction is confirmed at
+   the top end and k=1's failure is most likely a floor effect — but that reading
+   is only available once `run_vit_shots_ref.sh` supplies frozen_proto at k=1. If
+   attn and full_ft both sit near frozen at k=1, there was no gap to have there.
+   Until that run exists, k=1 stays recorded as a failure in direction.
+4. **Either way the depth result is untouched.** It needs `full_ft` to lose at
+   k=5, which it does across three draws on both datasets. It does not need an
+   explanation of why. Losing §3.5 costs one section, not the headline.
+
+Margins: single-draw k=1 and k=20 are per-episode paired, t(99)=1.9842. They are
+one draw each, so §2 fact 6 applies in full — a single draw near the floor is
+uninformative in *either* direction, and the k=20 reading will need its own draws
+before anything in §3.5 is rewritten on the strength of it.
+
 ## 4. What is NOT claimed yet
 
 Explicitly, so none of this gets quoted as a result:
