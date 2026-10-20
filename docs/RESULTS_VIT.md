@@ -1570,6 +1570,77 @@ k=5, which it does across three draws on both datasets. It does not need the
 mechanism. And note that k=5 — where the headline lives — is nowhere near a
 ceiling at 83–86%.
 
+### 3.7c The frozen reference at k=1: the prediction was mis-specified, not refuted
+
+Measured 2026-10-21 05:35 box. **Gate first:** `frozen_proto` reports
+`fraction_modified = 0.0000` with ci95 `0.0` across all 100 episodes, so it
+genuinely adapts nothing and every "frozen" number in this document stands.
+(Cross-checks from the same field: `attn_block8_ft` = 0.02751, matching the 2.75%
+the selector is supposed to open; `attn_only_ft` = 0.3233.)
+
+Note on the gate itself: the queue item said to "check `frac_mod` reads 0.000".
+**There is no `frac_mod` field** — it is `fraction_modified`, per episode and in
+`summary`. A check written against a key that does not exist passes vacuously or
+errors, and mine errored, which is the lucky outcome. The shorthand came from my
+own notes. Same family as §4.2, and the lesson is the same: a check must name the
+field the writer actually wrote.
+
+k=1, 100 episodes, seed 0, val, all three sharing the same episodes:
+
+| comparison | diff | ±95% | verdict |
+|---|---|---|---|
+| `attn_only_ft` − `frozen_proto` | **+0.05** | 1.42 | not settled |
+| `full_ft` − `frozen_proto` | **−1.20** | 1.42 | not settled |
+| `attn_only_ft` − `full_ft` | +1.25 | 1.18 | settled |
+
+**The k=1 gap is not attention winning. It is full fine-tuning losing to a frozen
+backbone, with attention tying frozen to within 0.05 points.** At k=1, adapting
+attention buys nothing whatsoever over not adapting at all.
+
+This settles the ambiguity §3.7 flagged, and it settles it against the reading I
+had been carrying. The k=1 row was recorded as "the support-size prediction failed
+in direction". **It did not fail; the prediction was mis-specified.** §3.5's story
+is that full fine-tuning over-optimises a small support set. The quantity that
+story predicts is each method's *gain over frozen* — and that quantity behaves
+exactly as predicted:
+
+| k | attn − frozen | full_ft − frozen |
+|---|---|---|
+| 1 | +0.05 | **−1.20** |
+| 5 | +6.34 | +3.85 |
+| 20 | *pending* | *pending* |
+
+Full fine-tuning's gain from adapting grows with k, and at k=1 it is *negative* —
+adapting actively harms, which is over-optimisation doing precisely what the story
+says. What does not grow is the **difference** between the two gains, and the
+reason is now obvious: the gap is bounded above by how much attention can gain,
+and at k=1 attention cannot gain anything either, because one example per class
+does not support learning. Both gains go to roughly zero at k=1, so their
+difference must too, whatever the mechanism.
+
+So the prediction "the gap shrinks as k grows" was the wrong prediction to
+pre-register. It is not a test of over-optimisation, because the gap is a
+difference of two quantities that are *both* floored at small k and — per §3.7b —
+both ceilinged at large k. The gap is the wrong statistic for this axis, at both
+ends, which is why both ends came out unreadable.
+
+**Status of the mechanism scoreboard, stated carefully.** §3.6's inner-step test
+stands as a confirmation. The support-size test is now **void rather than failed**
+— it measured a statistic that cannot answer the question. The gains-over-frozen
+table above is the test it should have been, it points the right way at k=1 and
+k=5, and it is two rows from being a real result. Recording it as "void" rather
+than "confirmed" matters: I designed this replacement analysis *after* seeing the
+k=1 numbers, so it is a hypothesis fitted to the data it explains, not a
+prediction. Its k=20 row — frozen_proto at k=20, running now — is the first point
+it has not already seen, and is therefore the only honest test of it.
+
+Pre-registered here, before that number arrives: over-optimisation predicts
+`full_ft − frozen` keeps **rising** with k, so k=20 should exceed +3.85. If it
+comes in flat or lower, this replacement story is wrong too, and §3.5 goes from
+void to refuted.
+
+Unchanged: the depth result, which needs `full_ft` to lose at k=5 and not a reason.
+
 ## 4.2 Two fields named `inner_lr`, and which one is real
 
 Recorded 2026-10-21 04:30 box, after it cost ten minutes and a false alarm.
