@@ -1311,6 +1311,43 @@ notes is the seed-0 single draw, and the two must not be mixed.
    k=5, which it does across three draws on both datasets. It does not need an
    explanation of why. Losing §3.5 costs one section, not the headline.
 
+#### 3.7a The gate opened clean: no grid edge at k=20
+
+Resolved 2026-10-21 02:55 box, from the sweep's own merge step, which ran before
+the measurement stage and so was readable before any accuracy was.
+**`results/vit_edges_shots20.json` is `[]`.** Both arms peak in the interior:
+
+| lr | 1e-6 | 3e-6 | 1e-5 | 3e-5 | 1e-4 | 3e-4 |
+|----|------|------|------|------|------|------|
+| `full_ft`      | .8803 | .9024 | .9283 | **.9448** | .9219 | .8219 |
+| `attn_only_ft` | .8648 | .8901 | .9157 | .9344 | **.9421** | .9216 |
+
+The worry in §3.7 point 1 was real but did not land: attention was still rising at
+1e-04 with one point left, and 3e-04 came in at .9216, below it. So attention's
+argmax is 1e-04, bracketed on both sides, and full_ft's is 3e-05, likewise.
+**Branch 1 does not apply; the k=20 cell is readable.** Note also that attention's
+optimum sits one grid step ABOVE full_ft's, which is the same lr/size relationship
+§1 found at k=5 and §2 fact 3 warns about assuming backwards.
+
+What the tuning rows suggest, with the caveats that matter:
+
+`attn_only_ft − full_ft` at k=20 reads **−0.27 points** (.9421 vs .9448). That is
+**not** "attention loses at k=20": 0.27 is well inside the ~0.6 noise floor (§2
+fact 2), these are 50-episode rows rather than the 100-episode measurement, they
+are a single draw, and the two optima were found on separate runs so the quoted
+CIs are unpaired. Nothing is established from them.
+
+What they do indicate is the thing branch 2 turns on: the gap has **collapsed**
+from +2.50 ± 0.64 at k=5 (three draws) to indistinguishable from zero at k=20. The
+100-episode paired measurement is running now and is the number that counts.
+
+If it holds, the support-size prediction has failed in direction at **both** ends
+— +1.25 at k=1, +2.50 at k=5, ~0 at k=20 — which is not a monotone relationship in
+k at all, and no version of the over-optimisation story predicts a peak in the
+middle. Per branch 2, §3.5 then becomes a description of where the effect is found
+rather than a mechanism for why, and is reported that way. Per branch 4, the depth
+result is unaffected either way.
+
 Margins: single-draw k=1 and k=20 are per-episode paired, t(99)=1.9842. They are
 one draw each, so §2 fact 6 applies in full — a single draw near the floor is
 uninformative in *either* direction, and the k=20 reading will need its own draws
