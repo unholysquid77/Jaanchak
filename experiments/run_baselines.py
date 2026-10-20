@@ -121,6 +121,10 @@ def main() -> None:
     p.add_argument("--episodes", type=int, default=600)
     p.add_argument("--inner-steps", type=int, default=20)
     p.add_argument("--inner-lr", type=float, default=1e-4)
+    p.add_argument("--inner-weight-decay", type=float, default=0.0,
+                   help="L2 on the adapted BACKBONE parameters only; the head's "
+                        "learnable temperature is never decayed (see EpisodeRunner). "
+                        "0.0 is bit-identical to no weight decay.")
     p.add_argument("--objective", default="two_view", choices=["two_view", "loo", "self"])
     p.add_argument("--bn-mode", default="eval", choices=["eval", "train"],
                    help="'train' enables transductive BatchNorm; report it separately")
@@ -191,6 +195,7 @@ def main() -> None:
         device=args.device,
         inner_steps=args.inner_steps,
         inner_lr=args.inner_lr,
+        inner_weight_decay=args.inner_weight_decay,
         amp=not args.no_amp,
         objective=args.objective,
         bn_mode=args.bn_mode,
@@ -259,6 +264,7 @@ def main() -> None:
                     "k_shot": k_shot,
                     "seed": seed,
                     "inner_lr": runner.inner_lr,
+                    "inner_weight_decay": runner.inner_weight_decay,
                     "inner_steps": runner.inner_steps,
                     "tuned": bool(setting),
                     "summary": summary,

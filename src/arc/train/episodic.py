@@ -493,6 +493,7 @@ class EpisodeRunner:
         device: str | torch.device = "cuda",
         inner_steps: int = 20,
         inner_lr: float = 1e-4,
+        inner_weight_decay: float = 0.0,
         amp: bool = True,
         objective: ObjectiveName = "two_view",
         bn_mode: str = "eval",
@@ -503,6 +504,13 @@ class EpisodeRunner:
         self.head = (head or ProtoHead()).to(self.device)
         self.inner_steps = inner_steps
         self.inner_lr = inner_lr
+        # Applied to the adapted BACKBONE parameters only -- never to the head. See
+        # the optimiser construction below for why that distinction is load-bearing.
+        if inner_weight_decay < 0:
+            raise ValueError(
+                f"inner_weight_decay must be non-negative, got {inner_weight_decay}"
+            )
+        self.inner_weight_decay = inner_weight_decay
         self.amp = amp and self.device.type == "cuda"
         self.objective = objective
         self.grad_clip = grad_clip
@@ -591,9 +599,34 @@ class EpisodeRunner:
 
             controller.bind_loss(support_loss)
 
-        params = [p for p in self.backbone.adapted.parameters() if p.requires_grad]
-        params += list(self.head.parameters())
-        opt = torch.optim.Adam(params, lr=self.inner_lr) if params else None
+        backbone_params = [
+            p for p in self.backbone.adapted.parameters() if p.requires_grad
+        ]
+        head_params = list(self.head.parameters())
+        params = backbone_params + head_params
+
+        # Weight decay goes on the backbone only, in its own param group.
+        #
+        # ProtoHead.log_temperature is a learnable Parameter whose cosine default is
+        # log(10). Decaying it pulls log_temperature toward 0, i.e. the temperature
+        # toward 1, which drives the cosine softmax flat -- the exact failure the
+        # head's own docstring warns about. So a single weight_decay across all
+        # parameters would not be "regularising the adaptation", it would be
+        # sabotaging the classifier and reporting the result as a capacity effect.
+        #
+        # Note this is Adam's COUPLED L2 (added to the gradient), not AdamW's
+        # decoupled decay. AdamW is the cleaner regulariser, but switching optimisers
+        # would change every baseline in the document; at inner_weight_decay=0 this
+        # construction is bit-identical to the single-group Adam it replaces, which
+        # tests/test_weight_decay.py asserts.
+        if self.inner_weight_decay > 0 and backbone_params:
+            groups = [
+                {"params": backbone_params, "weight_decay": self.inner_weight_decay},
+                {"params": head_params, "weight_decay": 0.0},
+            ]
+            opt = torch.optim.Adam(groups, lr=self.inner_lr)
+        else:
+            opt = torch.optim.Adam(params, lr=self.inner_lr) if params else None
         scaler = torch.amp.GradScaler("cuda", enabled=self.amp)
 
         n_way = episode.n_way
