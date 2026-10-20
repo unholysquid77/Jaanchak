@@ -28,7 +28,24 @@
 # them. One wide 6-point grid at each (baseline, k) cell per §4's standing rule --
 # seven of my grids have been mispitched by assuming a window.
 #
-# ~6 GPU-hours (k=20 episodes are ~4x the forward cost of k=5).
+# MEMORY, and a prediction ARC_SPEC.md §1 got half right. That section sized the
+# 10 GiB budget for ResNet-50 and said a 5-way 20-shot episode (175 images) "fits
+# comfortably". It does -- for ResNet-50. ViT-B/16 with --no-amp and full_ft (every one
+# of 85.8M parameters holding a gradient) does NOT: the first k=20 attempt died with
+# CUDA OOM trying to allocate 462 MiB with 279 MiB free.
+#
+# The fix is --grad-checkpoint AT k=20 ONLY, which recomputes activations in the
+# backward pass instead of storing them. Two things to be honest about:
+#   * it is slower, which is why it is not applied at k=1 and k=5 where it is not needed
+#   * recomputation can perturb floats, so k=20 runs a slightly different compute path
+#     from the other two k values. That is well inside the ~0.6 between-run floor §4
+#     records, but it means k=20 is not bit-comparable to k=1/k=5 and the write-up
+#     should say so rather than present three points from one pipeline.
+# The alternative -- enabling AMP for this cell -- was rejected: RESULTS_SUBSPACE.md §5
+# found AMP was most of a confound on the ResNet arm, the whole ViT arm is --no-amp, and
+# changing it for one cell would make that cell incomparable to everything else.
+#
+# ~6 GPU-hours (k=20 episodes are ~4x the forward cost of k=5, plus checkpointing).
 
 set -uo pipefail
 
@@ -67,13 +84,20 @@ run_k() {
         return
     fi
 
+    # k=20 needs activation checkpointing to fit in 10 GiB; see the header.
+    local ckpt=""
+    if [ "$k" -ge 20 ]; then
+        ckpt="--grad-checkpoint"
+        echo "[mem] k=${k}: enabling --grad-checkpoint (175 images, no AMP, full_ft)"
+    fi
+
     if [ ! -f "$sweep/.done" ]; then
         stage "k=${k}: tune $PAIR over $LRS"
         # shellcheck disable=SC2086
         $PY experiments/sweep_lr.py $EURO_DATA --arch "$ARCH" \
             --k-shot "$k" --episodes 50 \
             --baselines $PAIR --lrs $LRS \
-            --inner-steps 20 $NOAMP --out "$sweep" \
+            --inner-steps 20 $NOAMP $ckpt --out "$sweep" \
             || fail "k=${k} lr sweep failed"
         mkdir -p "$sweep" && touch "$sweep/.done"
     fi
@@ -102,7 +126,7 @@ PYEOF
     $PY experiments/run_baselines.py $EURO_DATA --arch "$ARCH" \
         --split val --k-shot "$k" --episodes 100 \
         --baselines $PAIR --tuned "results/vit_best_lr_shots${k}.json" \
-        --inner-steps 20 $NOAMP --skip-existing --out "$out" \
+        --inner-steps 20 $NOAMP $ckpt --skip-existing --out "$out" \
         || fail "k=${k} measurement failed"
     mkdir -p "$out" && touch "$out/.done"
 }
