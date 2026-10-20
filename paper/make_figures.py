@@ -195,6 +195,10 @@ def key_numbers() -> None:
         ("isic", "b5_vs_attnall", "attn_block5_ft", "attn_only_ft"),
         ("eurosat", "b5_vs_b11", "attn_block5_ft", "attn_last1_ft"),
         ("eurosat", "b2_vs_b11", "attn_block2_ft", "attn_last1_ft"),
+        ("isic", "b5_vs_b8", "attn_block5_ft", "attn_block8_ft"),
+        ("eurosat", "b8_vs_b5", "attn_block8_ft", "attn_block5_ft"),
+        ("eurosat", "b2_vs_b0", "attn_block2_ft", "attn_block0_ft"),
+        ("eurosat", "b5mlp_vs_b5attn", "mlp_block5_ft", "attn_block5_ft"),
     ]
     rows = []
     for ds, name, a, b in comps:
