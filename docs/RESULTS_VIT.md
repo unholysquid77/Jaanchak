@@ -790,6 +790,16 @@ the optimum was already interior at 3e-3 and the edge report is now empty. The
 plateau is real and 48.83 stands. Per §3.3.2 point 4 this was checked *before* the
 section was written, not after.
 
+The extension's re-measurement is also a free replication, and it is reported here
+rather than quietly averaged in: `results/vit_isicpos0` and
+`results/vit_isicpos0_v2` are the **same configuration** — same selector, same lr
+(3e-3), same `frac_mod` (2.751), same 100 episodes — and give **48.83 and 48.48**, a
+gap of 0.35. Every paired difference in this section is computed against the first
+of those, so that is the number the table quotes; the pair is a third independent
+confirmation that the between-run floor §4 records at ~0.6 is the right order of
+magnitude (the other two: block 8 on EuroSAT at two learning rates, 0.55 ± 0.93, and
+MLP block 5 before and after its extension, 0.21).
+
 Worth recording for its own sake: **on EuroSAT block 0 pinned at the BOTTOM of its
 grid (3e-5, wanting almost no movement); on ISIC the same block pins near the TOP
 (3e-3).** Same selector, same depth, opposite ends of the same grid. That is a direct
