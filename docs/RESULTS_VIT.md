@@ -1520,6 +1520,56 @@ The deeper pattern is the same one §3.3.4 is about: a measurement that includes
 measurer. There it was a statistic averaging over the axis being tested; here it is a
 process query matching the querying process. Both read as a clean signal.
 
+### 3.7b The k=20 measurement, and a branch the pre-registration missed
+
+Measured 2026-10-21 05:25 box. Both arms at their own tuned optimum (attention
+1e-04, full_ft 3e-05, both `tuned: true`, both 100 episodes, seed 0, val split),
+paired per-episode within the draw, t(99)=1.9842.
+
+| k | attn_only_ft | full_ft | gap | ±95% | draws | verdict |
+|---|------|------|------|------|-------|---------|
+| 1  | 62.15 | 60.89 | +1.25 | 1.18 | 1 | marginal |
+| 5  | 85.56 | 83.07 | **+2.50** | 0.64 | 3 | settled |
+| 20 | 94.00 | 93.76 | +0.24 | 0.53 | 1 | **not settled** |
+
+At k=20 the gap clears neither its interval nor the 0.6 floor. The sequence
++1.25, +2.50, +0.24 rises and then collapses, peaking at k=5.
+
+**The branch §3.7 did not anticipate: a ceiling.** Branch 2 said a smaller gap at
+k=20 with a bracketed grid means the relationship is not monotone in k, therefore
+§3.5 is a description rather than a mechanism. That inference is **not available
+from these numbers**, because both arms sit at **94%** on a 5-way task. Room above
+is ~6 points. A gap cannot be large where neither method has anywhere to go, so
+"the mechanism's prediction failed at k=20" and "k=20 is nearly saturated, so no
+method difference of any kind could show up" are *observationally identical here*
+— the same shape of ambiguity that made k=1 unreadable, at the other end of the
+axis, and I did not see it coming when writing the branches.
+
+This is the §3.3.4 failure family again, and worth naming precisely: the gap
+averages over an axis — **headroom** — that the comparison does not hold fixed.
+
+**What adjudicates it:** `frozen_proto` at k=20, which is running now
+(`run_vit_shots_ref.sh`, launched 05:30 box).
+
+* If frozen is also ≈93–94, then at k=20 adaptation buys nothing at all on this
+  dataset, the comparison between two methods of adapting is vacuous, and the
+  k=20 cell says nothing about the mechanism either way. §3.5 survives untested
+  at the top end rather than refuted.
+* If frozen is well below (≈85 or less), then adaptation is doing real work at
+  k=20 and the two methods genuinely tie. *That* is branch 2, and §3.5 becomes a
+  description rather than a mechanism.
+
+Until that number exists, the honest statement is: **the attention advantage is
+established at k=5 and is not detectable at k=20, for reasons not yet
+distinguished.** No claim about monotonicity in k, and specifically not the
+claim I was leaning toward two ticks ago, which the ceiling would have handed me
+for free.
+
+Unchanged either way, per branch 4: the depth result needs full_ft to lose at
+k=5, which it does across three draws on both datasets. It does not need the
+mechanism. And note that k=5 — where the headline lives — is nowhere near a
+ceiling at 83–86%.
+
 ## 4.2 Two fields named `inner_lr`, and which one is real
 
 Recorded 2026-10-21 04:30 box, after it cost ten minutes and a false alarm.
