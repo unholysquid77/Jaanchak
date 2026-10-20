@@ -393,7 +393,18 @@ against the type comparison and still clearly larger than the whole type range.*
 Both endpoints are now interior optima on their own grids, so this is a measurement
 rather than a bound (§3.3.2 point 4).
 
-**But read §3.3.5 before quoting any of it.** The same sweep on ISIC has depth
+**The organising fact is a depth effect with a type interaction on top of it, not
+attention.** §3.3.6 runs the identical sweep in the block MLP and gets the same
+shape — flat shallow region, steep rise, interior peak at block 8, fall at 11 —
+with a comparable span (8.21 against 8.89) and a *better* best cell (88.91, the
+highest number in this document, from 5.5% of the backbone). So "attention is the
+active ingredient", which earlier versions of this section claimed, is **retracted**;
+see §3.3.4 reading (d). What generalises is that **one well-placed block of either
+type beats every larger configuration, and a badly placed block of either type does
+not**. Type still matters once depth is fixed, but it *changes sign with depth*
+(§3.3.6 point 3), so it is an interaction term and not a ranking.
+
+**And read §3.3.5 before quoting any of it.** The same sweep on ISIC has depth
 mattering there too and pointing the *other* way — the shallow half is best, the deep
 end is worst, and no single block beats `full_ft` at all. So the part of this that is
 specific to EuroSAT is the part where a 2.75% slice beats everything bigger; the part
@@ -433,6 +444,17 @@ Three draws each, paired per seed, per §3.4:
 
 **On EuroSAT attention beats MLP, with half the parameters.** Every draw positive,
 interval well clear of zero. On ISIC the two are indistinguishable.
+
+> **What this comparison is actually averaging over, per §3.3.6.** Whole-type
+> adaptation touches all twelve blocks, so `attn − mlp` moves type *and* the depth
+> distribution together. Measured depth by depth, MLP − attention runs **+2.56,
+> +1.83, +4.08, +1.21, −1.33** at blocks 0, 2, 5, 8, 11 — MLP ahead at four depths
+> and behind at one, every one settled. The whole-type average has the opposite sign
+> from four of its five constituent depths, because whole-type MLP suffers more from
+> adapting twelve blocks at once than whole-type attention does. So **+1.18 is a real
+> property of the whole-type baselines and a misleading guide to the types
+> themselves.** It is the last of the four averaging errors §3.3.4 collects, and the
+> only one caught before it was promoted to a claim about mechanism.
 
 The whole type axis on EuroSAT, three-draw means where available:
 
@@ -663,6 +685,16 @@ and that the flatness is two effects cancelling: one well-placed block beats six
 containing it by 1.00 ± 0.96, and five same-size blocks span 8.89 points. **Cause: an
 instrument that varied two things at once, trusted as though it varied one.**
 
+**(d) "Attention is the active ingredient."** Survived (c) and was the live reading
+of §3.3 until §3.3.6 ran the same positional sweep inside the block MLP. The MLP
+curve has the same shape, a comparable span, and a higher peak — and a single MLP
+block beats `full_ft` by 5.67, against a pre-registered prediction that no single
+MLP block would beat it by anything like 5. So depth is the axis and attention is
+not privileged. **Cause: a sweep run in one parameter type and read as a fact about
+the backbone.** This one was caught by running the experiment the previous reading
+implied rather than by a later contradiction, which is the only reason it cost a
+retraction instead of a result.
+
 The common thread is that each reading took a quantity averaged over an unmeasured
 axis and interpreted it as though the axis were not there. (a) averaged over the
 episode pairing, (b) and (c) over depth. The live reading in §3.3 is itself an
@@ -784,6 +816,99 @@ then came in 2.00 above block 8 and the reading had to be withdrawn. Picking the
 transfers: if the peak moves at all, that depth is close to the worst available
 probe, and the error runs toward "no effect here". Measure the curve, not the other
 dataset's argmax.
+
+### 3.3.6 The same sweep in MLP: the effect is DEPTH, and type interacts with it
+
+§3.3.2 varies depth inside attention. §4 recorded that nothing varied depth inside
+any other type, and that the possibility of a well-placed MLP block also beating
+`full_ft` was what would decide whether the finding is about attention or about
+depth. `select_mlp_block`'s docstring recorded both predictions **before this data
+existed**:
+
+> *"about attention"* — MLP stays near its whole-type 84.76 at every depth, with no
+> comparable spread and no single MLP block beating `full_ft` by anything like 5.
+> *"about depth"* — the same shape, and a single MLP block beats `full_ft`.
+
+EuroSAT, seed 0, 100 episodes, 20 inner steps, each cell tuned separately over one
+wide six-point grid. Every optimum interior (block 5's top edge was extended and
+closed, §3.3.6a). `frac_mod` is 2.64–2.75 on every attention row and 5.45–5.50 on
+every MLP row — exactly the 1:2 size ratio the selectors claim.
+`scripts/run_vit_position_mlp.sh`.
+
+| block | attn lr | attention | MLP lr | MLP | MLP − attn |
+|---|---|---|---|---|---|
+| 0 | 3e-5 | 78.80 | 3e-4 | 81.36 | **+2.56 ± 1.28** |
+| 2 | 3e-4 | 78.87 | 3e-4 | 80.69 | **+1.83 ± 1.15** |
+| 5 | 3e-4 | 82.04 | 3e-3 | 86.12 | **+4.08 ± 1.20** |
+| **8** | 3e-3 | 87.69 | 1e-3 | **88.91** | **+1.21 ± 0.96** |
+| 11 | 3e-4 | 86.51 | 1e-3 | 85.17 | **−1.33 ± 0.85** |
+| — | | `attn_only` 85.96 | | `mlp_only` 84.76 | |
+| — | | `full_ft` 83.24 | | `frozen` 79.27 | |
+
+**1. The "about attention" branch is dead.** MLP in block 8 alone scores 88.91 — the
+best number anywhere in this document, from 5.5% of the backbone — and beats
+`full_ft` by **+5.67 ± 0.99**, where the prediction said no single MLP block would
+beat it by anything like 5. MLP in block 5 also beats `full_ft` (+2.88 ± 1.19). So
+the depth result is not about attention.
+
+**2. Depth is about as decisive inside MLP as inside attention.** Span 8.21 against
+8.89; `mlp_b8 − mlp_b0 = +7.55 ± 1.15`. Within MLP the chain is
+`b5 − b2 = +5.43 ± 1.27`, `b8 − b5 = +2.79 ± 1.00`, `b8 − b11 = +3.73 ± 0.94`, all
+settled, and the shallow pair ties (`b2 − b0 = −0.67 ± 1.17`). **Same shape as
+attention: a flat shallow region, a steep rise, an interior peak at 8, a fall at
+11.** Two parameter types, two independent sweeps, one shape. That is what makes
+depth a property of the backbone rather than a fact about attention.
+
+**3. But type is NOT free once depth is fixed, and it changes sign.** MLP wins at
+blocks 0, 2, 5 and 8 and **loses at block 11**, all five settled, at twice the
+parameters throughout. So neither "MLP is better" (it loses at 11) nor "bigger is
+better" (same row) survives. There is a real type × depth interaction, and the flip
+is specific to the last block.
+
+> **This is what §3.3.1's `attn − mlp` = +1.18 was averaging over.** That comparison
+> moves both type *and* the implicit depth distribution at once: whole-type
+> adaptation touches all twelve blocks, so it averages a quantity that runs from
+> +4.08 to −1.33 across depth. The sign of the average is not wrong, but it is an
+> average over an interaction, and reading it as "attention is the better type" is
+> the same error as the three retractions in §3.3.4 — a quantity averaged over an
+> unmeasured axis read as though the axis were not there. The difference is that
+> this time the axis was measured before the claim was promoted.
+
+**4. The shallow end corrects a claim I had been repeating.** Attention in blocks 0
+and 2 is indistinguishable from `frozen_proto`, which earlier commits of mine
+generalised to "early-block adaptation does nothing here". **MLP in block 0 beats
+frozen by +2.09 ± 1.30 and in block 2 by +1.43 ± 1.32.** So the shallow null is a
+fact about *attention at those depths*, not about those depths. What both types share
+is a flat shallow *region* — MLP's sits a little above frozen, attention's sits on
+it.
+
+**5. One well-placed block of either type beats everything larger; a badly placed
+block of either type does not.** Block 8 beats `full_ft` by 5.67 (MLP) and 4.45
+(attention); block 0 loses to it by 1.88 (MLP) and 4.44 (attention). The win is not a
+property of small interventions as such — it is a property of *well-placed* ones, and
+placement is doing more work than either size or type.
+
+**6. The learning rates move with depth, not with size.** MLP block 5 wants 3e-3
+while MLP block 11 wants 1e-3, at identical parameter counts; attention block 8 wants
+3e-3 while attention block 11 wants 3e-4. Across the two types the same depth often
+wants a similar rate despite a 2× size difference, which is further evidence against
+the fraction-of-backbone heuristic §4 records as having mispitched seven grids.
+
+### 3.3.6a Block 5's grid edge, and which way it leaned
+
+MLP block 5 first tuned to 3e-3, the top of its grid, so 85.91 was a lower bound. The
+extension (`scripts/run_vit_position_mlp_hi.sh`, 1e-2 and 3e-2) left the optimum
+interior at 3e-3 and the re-measurement gives **86.12** — 0.21 from the bounded
+value, i.e. inside the ~0.6 floor, so nothing moved except its status.
+
+Worth recording because it is the mirror of block 8's edge on the attention curve.
+Block 5 is the depth with MLP's **largest** margin over attention, so an understated
+row there would have **shrunk** the interaction this section describes; block 8's
+attention edge **inflated** that curve's headline. The two lean in opposite
+directions and both were closed on the same rule. Choosing which edges to chase by
+how they lean is how a result stops being a measurement — so the driver reads the
+edge report rather than a depth list, skips interior optima, and refuses to extend a
+*bottom* edge upward rather than guessing at it.
 
 ### 3.4 Three draws: both claims survive, and the test I was using was the wrong one
 
@@ -975,13 +1100,21 @@ Explicitly, so none of this gets quoted as a result:
 * **The capacity and positional sweeps are EuroSAT only, and attention-only.** Whether a single block
   is also sufficient on ISIC — where `full_ft` wins and headroom is twice as large —
   is untested, and it is the comparison that would most change the story. Nor does
-  anything here sweep capacity *or position* within MLP or LayerNorm. Since §3.3.2
-  shows depth dominates inside attention, the possibility that a well-placed MLP
-  block also beats `full_ft` is wide open, and it is what would decide whether the
-  finding is about attention or about depth. `select_mlp_block` and
-  `scripts/run_vit_position_mlp.sh` exist and are unrun; the two hypotheses and how
-  they differ in sign and size are written down in that selector's docstring, so the
-  prediction is on record before the measurement rather than after it.
+  anything here sweep capacity within MLP, and LayerNorm has no positional sweep at
+  all. **Position within MLP is now ANSWERED by §3.3.6** — same shape, comparable
+  span, higher peak, and the pre-registered "about attention" branch dead — so the
+  open part is narrower: LayerNorm affine is 0.045% of the backbone and gets within
+  1.4 points of the best whole-type baseline, and nothing measures whether *its*
+  usefulness is also concentrated at a particular depth. If it is, the claim becomes
+  a property of the block index independent of what is adapted there, which is
+  stronger than anything currently written.
+* **The type × depth interaction is five depths, one draw, one dataset.** §3.3.6
+  establishes that MLP − attention changes sign with depth (+2.56, +1.83, +4.08,
+  +1.21, −1.33 at blocks 0/2/5/8/11, all settled per-episode at seed 0). What is NOT
+  established is the shape of that interaction: whether the flip is specific to block
+  11 or begins somewhere between 8 and 11, whether it replicates across draws, and
+  whether it exists at all on ISIC. The attention curve has three draws (§3.3.2a) and
+  the MLP curve has one, so the interaction inherits the weaker of the two.
 * **Nothing here explains why other types are harmful alongside attention.**
   `mlp_only_ft` (84.76) and `ln_only_ft` (84.75) each beat frozen comfortably on
   their own, yet adding them to attention costs 2.72. Interference between
