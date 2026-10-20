@@ -735,7 +735,7 @@ Paired per-episode differences on ISIC, same seed so literally the same 100 epis
 | block 5 − `frozen_proto` | **+9.88 ± 1.81** | settled |
 | block 5 − block 11 | **+4.23 ± 1.51** | settled |
 | block 5 − block 8 | +2.00 ± 1.70 | settled |
-| block 11 − block 8 | −2.23 ± 1.28 | settled |
+| block 11 − block 8 | −2.23 ± 1.28 | **superseded — see §3.3.5a** |
 | block 0 − `full_ft` | −3.67 ± 1.60 | settled |
 | block 2 − `full_ft` | −3.51 ± 1.54 | settled |
 | block 5 − `full_ft` | −3.27 ± 1.65 | settled |
@@ -749,7 +749,10 @@ Paired per-episode differences on ISIC, same seed so literally the same 100 epis
 
 **1. Depth matters on ISIC, and the two curves are roughly mirrored.** ISIC is one
 flat plateau over blocks 0/2/5 — no pairwise difference among them settled, spread
-0.40 — and then falls away: block 5 beats block 11 by 4.23 ± 1.51. EuroSAT is flat
+0.40 — and then falls away: block 5 beats block 11 by 4.23 ± 1.51 at this draw, and
+**+3.28 ± 2.07 over three draws** (§3.3.5a). The fall is one step down from the
+plateau to the deep end — §3.3.5a shows blocks 8 and 11 are *not* distinguishable
+from each other once draws are taken. EuroSAT is flat
 over blocks 0/2 and then *rises*, block 8 beating block 5 by 5.65 ± 1.40. The useful
 depths are the shallow half on ISIC and the deep end on EuroSAT.
 
@@ -826,6 +829,81 @@ then came in 2.00 above block 8 and the reading had to be withdrawn. Picking the
 transfers: if the peak moves at all, that depth is close to the worst available
 probe, and the error runs toward "no effect here". Measure the curve, not the other
 dataset's argmax.
+
+### 3.3.5a Three draws of the ISIC curve: the mirror holds, one sub-step does not
+
+§3.3.5 was single-draw at every depth, and §4 called that the largest hole in the
+arm. Seeds 1 and 2 at the seed-0 tuned learning rates, `--split-seed` held at 0 (block
+0 runs at its **post-extension** 3e-3, not the pre-extension pick — the driver's
+merge prefers `_v2` files and logs the supersession).
+`scripts/run_vit_position_isic_seed.sh`.
+
+| | seed 0 | seed 1 | seed 2 | mean | sd | frac_mod |
+|---|---|---|---|---|---|---|
+| block 0 | 48.83 | 48.45 | 47.32 | **48.20** | 0.78 | 2.751 |
+| block 2 | 48.99 | 47.75 | 47.16 | 47.96 | 0.93 | 2.745 |
+| block 5 | 49.23 | 47.07 | 47.04 | 47.78 | 1.25 | 2.746 |
+| block 8 | 47.23 | 45.09 | 45.21 | 45.84 | 1.20 | 2.747 |
+| block 11 | 45.00 | 44.43 | 44.05 | 44.49 | 0.48 | 2.741 |
+
+Per-seed differences, mean ± t(2)·sd/√3:
+
+| comparison | 3-draw | per-draw | |
+|---|---|---|---|
+| block 2 − block 11 | **+3.47 ± 1.14** | +3.99, +3.32, +3.11 | settled |
+| block 5 − block 11 | **+3.28 ± 2.07** | +4.23, +2.64, +2.99 | settled |
+| block 0 − block 8 | **+2.36 ± 2.25** | +1.60, +3.36, +2.11 | settled |
+| block 5 − block 8 | **+1.93 ± 0.23** | +2.00, +1.97, +1.83 | settled |
+| block 8 − block 11 | +1.35 ± 1.98 | +2.23, +0.67, +1.16 | **not settled** |
+| block 0 − block 2 | +0.24 ± 1.09 | −0.16, +0.71, +0.16 | not settled |
+| block 2 − block 5 | +0.19 ± 1.15 | −0.24, +0.68, +0.12 | not settled |
+| block 0 − block 5 | +0.42 ± 2.24 | −0.40, +1.39, +0.28 | not settled |
+
+**1. The plateau is confirmed as a plateau, in the way that actually counts.** All
+three internal comparisons across blocks 0/2/5 stay unsettled at three draws, and
+the *argmax moves between draws* — block 5 at seed 0, block 0 at seeds 1 and 2. A
+curve I had merely failed to resolve would have kept its ordering; one whose ordering
+reshuffles between draws is flat. §3.3.5's "flat plateau over 0/2/5" was the right
+reading of the single draw and survives the test designed to break it.
+
+**2. One sub-step is DEMOTED.** §3.3.5 quoted `block 11 − block 8 = −2.23 ± 1.28`
+from seed-0 per-episode pairing and called it settled. At three draws it is
+**+1.35 ± 1.98, not settled** — the per-draw values are +2.23, +0.67, +1.16, so seed 0
+was the most favourable of the three. **The ISIC decline is therefore one step down
+from the shallow plateau to the deep end, not a graded fall through it.** Blocks 8
+and 11 are not distinguishable from each other here.
+
+That is the fifth time a single-draw link has moved under draws (§3.3.2a has two
+going the other way, where three draws *promoted* marginal claims). The pattern is
+not "single draws are optimistic" — it is that single draws are *uninformative about
+links near the floor*, in either direction.
+
+**3. The mirror is now three draws on both sides, and it holds.** Every
+shallow-versus-deep comparison has the opposite sign on the two datasets, all eight
+settled:
+
+| comparison | ISIC | EuroSAT |
+|---|---|---|
+| block 2 − block 11 | **+3.47 ± 1.14** | **−7.31 ± 1.13** |
+| block 5 − block 11 | **+3.28 ± 2.07** | **−4.17 ± 1.31** |
+| block 0 − block 8 | **+2.36 ± 2.25** | **−8.73 ± 1.42** |
+| block 5 − block 8 | **+1.93 ± 0.23** | **−5.71 ± 1.38** |
+
+Shallow beats deep on ISIC; deep beats shallow on EuroSAT. Same selector, same
+depths, same five-way 5-shot protocol, three draws each. This was the weakest link in
+§3.3.5's cross-dataset reading and it is now the best-supported claim in the section.
+
+**4. The depth span is smaller than the single draw suggested.** 3.71 on the
+three-draw means against 4.23 at seed 0, versus EuroSAT's 8.85. So ISIC's depth
+effect is real and settled but **less than half** the size of EuroSAT's — consistent
+with §3.5's reading that mild shift is where placement buys the most.
+
+**5. Draw-to-draw variance is larger on ISIC than on EuroSAT**, which is worth
+recording for anyone sizing a future sweep: accuracy sd across draws runs 0.48–1.25
+here against 0.29–0.50 on EuroSAT (§3.3.2a). ISIC's 7 classes and 1.3 images per
+group make its episode sample noisier, so an ISIC link needs a bigger true effect
+than a EuroSAT one to clear the same bar. Two of the settled rows above have
+intervals above 2 points for that reason.
 
 ### 3.3.6 The same sweep in MLP: the effect is DEPTH, and type interacts with it
 
@@ -1026,8 +1104,9 @@ the ISIC/EuroSAT headroom *ratio* this section leans on is measured with a type
 partition on one side and a positional one on the other.
 
 **§3.3.5 closes that gap and the ratio survives.** The ISIC positional sweep is now
-run: its best depth is 49.23, so positional headroom there is 9.88 against EuroSAT's
-8.47 — much closer than the type-partition figures (13.24 against 8.47) made it look.
+run: its best depth is 48.20 over three draws (§3.3.5a; 49.23 at seed 0), so
+positional headroom there is 8.85 against EuroSAT's 8.47 — i.e. **near-identical**, where the type-partition figures (13.24 against 8.47) made
+them look two-to-one apart.
 What separates the two datasets is therefore *not* mainly how much a single
 well-placed intervention can get; it is whether anything beyond one is worth adding.
 On EuroSAT the best single depth beats `full_ft` by 4.45; on ISIC it loses by 3.27.
@@ -1150,14 +1229,15 @@ Explicitly, so none of this gets quoted as a result:
   five of twelve depths on each dataset, one draw each, and two datasets is still two
   points on a shift axis that §4 already warns is a proxy.
 * **PARTLY ANSWERED: EuroSAT's curve now has three draws, ISIC's still has one.**
-  §3.3.2a settled both marginal claims (block 8 − block 11 = +1.54 ± 0.80, block 8 −
-  last-6 = +1.26 ± 0.68, every draw positive) and the depth span replicates at
-  8.89/9.31/8.41. What remains: **the ISIC curve is still single-draw at every
-  depth**, so §3.3.5's plateau and its fall are one draw each and the mirrored-curve
-  claim rests on three ISIC draws it does not have. Both curves are also still five
-  of twelve depths, so whether EuroSAT's peak sits at 8 specifically or anywhere in
-  6–10 is interpolation. Every grid edge on both curves is closed except EuroSAT
-  block 0's bottom edge.
+  §3.3.2a settled both EuroSAT marginal claims and **§3.3.5a now gives the ISIC
+  curve three draws too**: the plateau is confirmed (all three internal comparisons
+  unsettled, argmax moving between draws), the mirror holds with four
+  shallow-versus-deep comparisons of opposite sign on the two datasets, and ISIC's
+  `block 8 − block 11` is **demoted** from settled to not settled. What remains:
+  both curves are five of twelve depths, so whether EuroSAT's peak sits at 8
+  specifically or anywhere in 6–10 is interpolation; **the MLP curve is still
+  single-draw**, so the type × depth interaction inherits that; and EuroSAT block 0's
+  bottom grid edge is the last unclosed edge.
 * **Nothing explains what `full_ft` has that attention does not, under strong shift.**
   §3.3.5 point 4 sharpens the question: on ISIC one well-placed block ties all twelve
   blocks of attention, and both lose to `full_ft` by ~3.3. So the shortfall is not
