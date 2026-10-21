@@ -248,6 +248,71 @@ def fig_shots() -> None:
         print("    SKIP shots.dat entirely -- no k cells loaded")
 
 
+def fig_weight_decay() -> None:
+    """Weight-decay sweep, each level paired against its own wd=0 arm.
+
+    Loaded by a DEDICATED accumulator rather than through ACC, because the wd runs
+    are all EuroSAT k=5 and reuse the same baseline names: on the shared key they
+    would collide with vit_2b_eurosat on ('eurosat', 5, 'full_ft', 0). Weight decay
+    is a fourth axis, and rather than widen the universal key again for a
+    self-contained comparison, it gets its own dict keyed (wd, baseline). The
+    comparison never crosses sweeps -- every level is paired against the wd=0 arm
+    measured in the SAME sweep, at the same tuned lr.
+    """
+    acc: dict = {}
+    for d in sorted(glob.glob("results/vit_wd_*")):
+        wd = os.path.basename(d)[len("vit_wd_"):]
+        for f in glob.glob(f"{d}/*.json"):
+            j = json.load(open(f))
+            key = (wd, j["baseline"])
+            if key in acc:
+                raise RuntimeError(f"{f}: duplicate {key}")
+            acc[key] = (j, [e["accuracy"] * 100 for e in j["episodes"]])
+    if ("0", "full_ft") not in acc:
+        print("    SKIP weight_decay.dat -- no wd=0 arm to pair against")
+        return
+    rows = []
+    for base in ("full_ft", "attn_only_ft"):
+        if ("0", base) not in acc:
+            continue
+        j0, ref = acc[("0", base)]
+        for wd in sorted(k[0] for k in acc if k[1] == base and k[0] != "0"):
+            jj, v = acc[(wd, base)]
+            if jj["inner_lr"] != j0["inner_lr"]:
+                raise RuntimeError(
+                    f"wd={wd} {base}: lr {jj['inner_lr']} != wd=0's {j0['inner_lr']}; "
+                    f"that is a learning-rate comparison, not a weight-decay one"
+                )
+            d = [x - y for x, y in zip(v, ref)]
+            m = st.mean(d)
+            ci = T99 * st.stdev(d) / math.sqrt(len(d))
+            rows.append(f"{base} {wd} {st.mean(v):.2f} {m:+.2f} {ci:.2f} "
+                        f"{'settled' if abs(m) > ci and abs(m) > 0.6 else 'unsettled'}")
+    write("weight_decay.dat", "baseline wd acc diff_vs_wd0 ci95 verdict", rows)
+
+
+def mech_numbers() -> None:
+    """Each method's gain over a frozen backbone, per shot count.
+
+    This is the statistic the over-optimisation account actually predicts, and the
+    one the raw attn-minus-full gap cannot stand in for: the gap is a difference of
+    two gains that are both floored at k=1 (nothing adapts) and both large at k=20
+    (both adapt fully), so it is non-monotone in k for reasons that have nothing to
+    do with the mechanism. See RESULTS_VIT.md §3.7d.
+    """
+    rows = []
+    for k in sorted(SHOT_DIRS):
+        for base in ("attn_only_ft", "full_ft"):
+            d, ci, n = paired("eurosat", base, "frozen_proto", k)
+            if d is None:
+                print(f"    SKIP mech k={k} {base}")
+                continue
+            rows.append(f"{k} {base} {d:+.2f} {ci:.2f} {n} "
+                        f"{'settled' if abs(d) > ci and abs(d) > 0.6 else 'unsettled'}")
+    if rows:
+        write("mech_gains.dat", "k baseline gain_over_frozen ci95 draws verdict", rows)
+
+
 def key_numbers() -> None:
     """Every inline number the paper quotes, with dataset and draw count."""
     comps = [
@@ -288,5 +353,7 @@ if __name__ == "__main__":
     fig_params_vs_acc()
     fig_inner_steps()
     fig_shots()
+    fig_weight_decay()
+    mech_numbers()
     key_numbers()
     print("done. Draw counts above; a caption must not claim more draws than listed.")

@@ -67,6 +67,45 @@ def test_figure_data_files_exist(tex: str) -> None:
     assert not missing, f"tex reads tables that do not exist: {missing}"
 
 
+def test_every_quoted_margin_comes_from_a_generated_table(tex: str) -> None:
+    """The project rule is: never transcribe a number into the tex. This enforces it.
+
+    Every ``\\dd{value}{ci}`` in the paper is a claimed margin. Each one must appear,
+    to the digit, in one of the tables make_figures.py emits from results/. A number
+    typed by hand -- or left behind when its underlying run was re-measured -- fails
+    here rather than surviving into a submission.
+
+    It also catches the specific mistake this project keeps making: quoting a point
+    estimate from one draw count beside a confidence interval from another. The k=5
+    gap was briefly written as 2.72 +/- 0.64, pairing a seed-0 mean with a
+    three-draw interval; the pair (2.72, 0.64) exists in no table, so this fails on
+    it while either honest pair passes.
+    """
+    figdata = TEX.parent / "figdata"
+    cols = {"key_numbers.dat": (2, 3), "shots.dat": (4, 5),
+            "mech_gains.dat": (2, 3), "weight_decay.dat": (3, 4)}
+    allowed: set[tuple[float, float]] = set()
+    for name, (vi, ci) in cols.items():
+        f = figdata / name
+        if not f.exists():
+            continue
+        for line in f.read_text().splitlines()[1:]:
+            tok = line.split()
+            allowed.add((abs(float(tok[vi])), float(tok[ci])))
+    if not allowed:
+        pytest.skip("no generated tables to check against")
+    quoted = [(float(a), float(b))
+              for a, b in re.findall(r"\\dd\{(-?[\d.]+)\}\{([\d.]+)\}", tex)]
+    assert quoted, "no \\dd margins found -- the macro or the regex changed"
+    ungenerated = [q for q in quoted if (abs(q[0]), q[1]) not in allowed]
+    assert not ungenerated, (
+        f"margins in the paper that no generated table contains: {ungenerated}. "
+        f"Either the number was typed by hand, or its run was re-measured and the "
+        f"tex was not regenerated, or a point estimate and an interval come from "
+        f"different draw counts."
+    )
+
+
 def test_comparators_are_not_claimed_to_share_our_checkpoint(tex: str) -> None:
     """Regression guard on a specific false claim.
 

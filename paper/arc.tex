@@ -33,27 +33,36 @@ Depth Dominates Parameter Selection in Cross-Domain Few-Shot Adaptation}
 Parameter-efficient adaptation is usually framed as a choice of \emph{which kind} of
 parameter to update: normalisation affines, attention projections, adapters, low-rank
 factors. We show that on a ViT-B/16 under cross-domain few-shot evaluation this framing
-hides a larger effect. Holding the parameter type and the parameter count exactly fixed
-and varying only \emph{which transformer block} is adapted, accuracy spans
-$8.9$ points on EuroSAT --- against $6.5$ points for the entire parameter-type axis and
-$1.2$ points for the attention-versus-MLP comparison inside it. Adapting attention in a
-single well-chosen block ($2.75\%$ of the backbone) beats full fine-tuning of all
-$85.8$M parameters by \dd{4.43}{0.90} points; the same experiment in the block MLP
-($5.50\%$) beats it by \dd{5.72}{0.26}. The effect is not a property of attention: the
-MLP depth curve has the same shape, a comparable span, and a higher peak. It is also
-not a property of the backbone alone --- on ISIC, where the domain shift is larger, the
-curve is \emph{mirrored}: shallow blocks win, deep blocks lose, and no single block
-beats full fine-tuning at all. Four shallow-versus-deep comparisons have opposite signs
-on the two datasets, all settled at three draws. We argue that the depth at which
-adaptation pays is a measurement of where the pretrained representation stops
-transferring, and that the standard parameter-type decomposition is measured in a
-regime where it cannot see this.
-\TODO{all numbers validation-split; test split is the final run and is not in this draft}
+hides a larger effect. Holding parameter type and parameter count exactly fixed and
+varying only \emph{which transformer block} is adapted, accuracy spans $8.9$ points on
+EuroSAT --- against $6.5$ points for the entire parameter-type axis and $1.2$ points for
+the attention-versus-MLP comparison inside it. Adapting attention in one well-chosen
+block ($2.75\%$ of the backbone) beats full fine-tuning of all $85.8$M parameters by
+\dd{4.43}{0.90} points; the same experiment in the block MLP ($5.50\%$) beats it by
+\dd{5.72}{0.26}. The effect is not a property of attention --- the MLP depth curve has
+the same shape, a comparable span and a higher peak --- and not a property of the
+backbone alone: on ISIC, where the shift is larger, the curve is \emph{mirrored},
+shallow blocks win, and no single block beats full fine-tuning at all. Four
+shallow-versus-deep comparisons take opposite signs on the two datasets, each settled
+across three episode draws.
+
+We then ask why full fine-tuning loses, and test three pre-registered predictions of an
+over-optimisation account. Two hold: reducing inner steps helps the large parameter
+group and hurts the small one, and each method's gain over a frozen backbone grows with
+support size at different rates --- full fine-tuning is \emph{worse than frozen} at
+$k=1$ ($-1.20$), recovers to $+3.85$ at $k=5$ against attention's $+6.35$, and catches
+up entirely by $k=20$ ($+7.41$ against $+7.65$). One fails: adding weight decay to the
+inner loop does not repair full fine-tuning but degrades it further
+(\dd{-1.08}{0.89}). We report the failure rather than reinterpret it, and note that the
+advantage is therefore bounded to a \emph{regime} --- support sets too small to
+constrain full fine-tuning but large enough for a small, well-placed group to learn
+from --- which predicts the method's own obsolescence at larger $k$.
+
+All numbers are validation-split; the test split is held for a single final run after
+every design decision is frozen, and is deliberately absent from this paper.
 \end{abstract}
 
 \section{Introduction}
-
-\TODO{tighten; this is the argument, not the prose}
 
 Cross-domain few-shot learning asks a pretrained backbone to classify from a handful of
 labelled examples in a domain it was not trained on. The dominant design question in the
@@ -82,8 +91,16 @@ Our contributions:
   \item \textbf{The curve mirrors with shift magnitude.} On ISIC the ordering reverses;
     four shallow-versus-deep comparisons have opposite signs on the two datasets
     (\S\ref{sec:mirror}).
-  \item \textbf{A mechanism with one confirmed prediction}: full fine-tuning
-    over-optimises where there is little to gain (\S\ref{sec:mech}).
+  \item \textbf{A mechanism tested three ways, two confirmed and one failed.} Full
+    fine-tuning over-optimises where there is little to gain; fewer inner steps and
+    larger support sets both move it as predicted, while weight decay --- the
+    intervention that should have repaired it --- makes it worse
+    (\S\ref{sec:mech}). We report the failure as a failure.
+  \item \textbf{A regime, not a universal win.} The single-block advantage requires a
+    support set too small to constrain full fine-tuning and large enough for a small
+    group to learn from. Outside that window the methods are indistinguishable: at
+    $k=1$ nothing adapts usefully at all, and by $k=20$ full fine-tuning has caught up
+    (\S\ref{sec:mech}). This bounds the claim and says when to use it.
 \end{enumerate}
 
 \section{Setup}
@@ -123,8 +140,12 @@ analysis and produced one false null. We therefore report, for three-draw compar
 the per-seed difference as $\bar{d} \pm t_{2}\,s_d/\sqrt{3}$ with $t_2 = 4.303$.
 Separately, repeated runs of byte-identical configurations differ by $\approx 0.6$
 points (GPU floating-point non-determinism amplified through Adam), so we treat
-$0.6$ as a floor and do not claim differences below it.
-\TODO{move some of this to an appendix once the body settles}
+$0.6$ as a floor and do not claim differences below it. That floor is entirely
+attributable to the optimiser: a frozen backbone reproduces all $100$ episodes
+bit-identically between runs, whereas two runs that take gradient steps agree exactly on
+only $7$--$14$ of them while still averaging to within a point. The perturbation is
+therefore near-independent across episodes, which is why per-episode pairing buys as
+much as it does.
 
 \section{Depth dominates parameter type}
 \label{sec:depth}
@@ -307,15 +328,96 @@ seed $0$ at all three step counts.}
 \label{fig:steps}
 \end{figure}
 
-\paragraph{In flight.} Two further predictions are running and are not in this draft:
-the gap should shrink as the support set grows ($k=1$ versus $k=20$), and regularising
-full fine-tuning should help it while not helping attention.
-\TODO{fold in k-shot and weight-decay results}
+\paragraph{Confirmed: the deficit shrinks as the support set grows.}
+The account predicts that full fine-tuning's penalty is worst where there is least to
+fit, so its \emph{gain over a frozen backbone} should grow with $k$. It does, and the
+shape is informative (Figure~\ref{fig:shots}, Table~\ref{tab:gains}). At $k=1$ full
+fine-tuning is \emph{below} frozen; attention is indistinguishable from frozen, because
+one example per class supports no learning for either. At $k=5$ attention gains
+\dd{6.35}{1.07} against full fine-tuning's \dd{3.85}{0.43}, and the \dd{2.50}{0.64}
+margin is that difference. At $k=20$ attention has saturated (\dd{7.65}{0.98}) while full
+fine-tuning has caught up (\dd{7.41}{1.04}).
+
+\begin{table}[t]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+gain over frozen & $k=1$ & $k=5$ & $k=20$ \\
+\midrule
+attention only ($33\%$)  & \dd{0.05}{1.42} & \dd{6.35}{1.07} & \dd{7.65}{0.98} \\
+full fine-tuning ($100\%$) & \dd{-1.20}{1.42} & \dd{3.85}{0.43} & \dd{7.41}{1.04} \\
+\midrule
+attention $-$ full        & \dd{1.25}{1.18} & \dd{2.50}{0.64} & \dd{0.24}{0.53} \\
+\bottomrule
+\end{tabular}
+\caption{EuroSAT. The $k=5$ row is three draws; $k=1$ and $k=20$ are one draw each and
+are paired per episode. Only the $k=5$ difference and the two $k=20$ gains clear both
+their interval and the $0.6$ floor.}
+\label{tab:gains}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.72\textwidth, height=5.4cm,
+  xlabel={support examples per class $k$ (log scale)}, xmode=log, log basis x=10,
+  ylabel={5-way accuracy (\%)}, xtick={1,5,20}, xticklabels={1,5,20},
+  grid=major, grid style={gray!20}, legend pos=south east, legend cell align=left]
+\addplot[attncol, mark=*, thick] table[x=k, y=attn] {figdata/shots.dat};
+\addlegendentry{attention only ($33\%$)}
+\addplot[refcol, mark=square*, thick, dashed] table[x=k, y=full] {figdata/shots.dat};
+\addlegendentry{full fine-tuning ($100\%$)}
+\addplot[refcol, mark=triangle*, thick, dotted] table[x=k, y=frozen] {figdata/shots.dat};
+\addlegendentry{frozen backbone}
+\end{axis}
+\end{tikzpicture}
+\caption{The advantage is a window. All three curves converge at $k=1$, where nothing
+adapts usefully, and the two adapted curves converge at $k=20$, where full fine-tuning
+has enough support to constrain its parameter count. The gap closes because full
+fine-tuning catches up, not because attention degrades --- attention never gets worse
+at any $k$.}
+\label{fig:shots}
+\end{figure}
+
+Note that the \emph{raw gap} is non-monotone in $k$ ($+1.25$, $+2.50$, $+0.24$) and
+cannot be used to test this account at all: it is a difference of two gains that are
+both floored at $k=1$ and both large at $k=20$, so it must fall at either end whatever
+the mechanism. The gain over frozen is the statistic the account predicts, and we report
+it in place of the gap for that reason.
+
+\paragraph{Failed: weight decay does not repair full fine-tuning.}
+The account's most direct prediction is that constraining the large group should help
+it. Adding weight decay to the inner loop does the opposite. Against its own
+zero-decay arm at the same tuned learning rate, full fine-tuning loses
+\dd{-1.08}{0.89} at $10^{-3}$, with a monotone decline across $0 \to 10^{-4} \to
+10^{-3}$. Attention is unaffected at every level tested (\dd{0.61}{0.99} at $10^{-3}$,
+unsettled). Half the prediction --- that decay would not help attention --- holds; the
+half that mattered fails in direction.
+
+We record this as a failure rather than reinterpret it. There is a principled reason the
+test may be the wrong one: weight decay pulls parameters toward \emph{zero}, and
+pretrained weights are nowhere near zero, so in a fine-tuning inner loop
+decay-toward-the-origin does not express ``stay near the prior'' but actively destroys
+the features the checkpoint exists to provide. The regulariser matching the account's
+intent is $\ell^2$ toward the pretrained weights, which we have not run. That
+explanation arrived after the result, and an explanation produced after a failure is a
+hypothesis, not a finding; it will take the $\ell^2$-SP experiment to change this entry.
+
+\paragraph{Scoreboard, and what the mechanism is worth.}
+Two of three pre-registered predictions hold: inner steps and support size. One fails:
+regularisation. The honest summary is that full fine-tuning behaves like a method with
+too much capacity for its data --- it degrades with more optimisation, it is worse than
+doing nothing at $k=1$, and it recovers as data arrives --- but the one intervention
+that should have fixed it instead made it worse, and we cannot yet say whether that
+indicts the account or the intervention.
+
+The depth result does not rest on any of this. It requires full fine-tuning to lose at
+$k=5$, which it does across three draws on both datasets, and not an explanation of
+why.
 
 \section{Relation to the parameter-type literature}
 \label{sec:related}
 
-\TODO{this section is still thin on positioning; the comparability statement below is final}
 On ResNet-50 we find what the type literature implies: a $0.75$-point band across a
 $778\times$ range of trainable parameter counts, replicated on both datasets, with
 adaptation $\approx 90\%$ a per-channel affine and near rank-$1$ at the top of the
@@ -359,7 +461,47 @@ literature implies'' is our own ResNet replication, not their numbers.
     have not enabled deterministic kernels. Every individual accuracy carries that noise
     on top of the episode-sample spread.
   \item \textbf{One architecture family} for the depth result.
+  \item \textbf{The support-size result is EuroSAT only.} ISIC already inverts the
+    depth ordering, so its support-size behaviour cannot be assumed to match; it is
+    unmeasured. Within EuroSAT, $k=1$ and $k=20$ are a single draw each.
+  \item \textbf{The gains-over-frozen statistic was chosen after seeing $k=1$ and
+    $k=5$.} Only the $k=20$ row was out-of-sample for it. That is one genuinely
+    predictive point, not a replicated test.
+  \item \textbf{The failed regularisation prediction is unresolved.} We do not know
+    whether weight decay's failure indicts the over-optimisation account or only the
+    choice of regulariser, and the experiment that would separate them ($\ell^2$
+    toward the pretrained weights) has not been run.
+  \item \textbf{No comparator is re-run under our protocol.} Our positioning rests on
+    an internal comparison and on our own ResNet replication, not on published numbers
+    measured in other settings (\S\ref{sec:related}).
 \end{itemize}
+
+\section{Conclusion}
+
+The parameter-efficient adaptation literature asks which kind of parameter to update.
+On a ViT-B/16 under cross-domain few-shot evaluation, that question is dominated by one
+it cannot express: at which depth. Five interventions identical in type and size span
+$8.9$ points across depth, against $6.5$ for the whole type axis, and one well-placed
+block of either attention or MLP beats full fine-tuning of the entire backbone while a
+badly placed block of the same size and type does not beat it at all. The win belongs to
+placement, not to small interventions as such.
+
+Two features of the result bound it, and we think both are more useful than a larger
+headline would have been. The depth curve \emph{reverses} between our two datasets, so
+the right depth is a property of the domain shift rather than of the architecture --- we
+read the curve as locating where the pretrained representation stops transferring, and
+on the stronger-shift dataset no single block suffices. And the advantage occupies a
+window in support size: it needs data too scarce to constrain full fine-tuning and
+plentiful enough for a small group to learn from, so it disappears at both ends. A
+method whose own obsolescence at $k=20$ is visible in its figures is easier to deploy
+correctly than one whose limits are unstated.
+
+What we cannot yet explain is why the obvious repair for full fine-tuning does not work.
+Weight decay degrades it rather than rescuing it, which is either a fact about the
+account or a fact about decaying toward the origin from a pretrained initialisation. The
+experiment that distinguishes those is the natural next one, along with a second
+architecture family and a third dataset to turn the mirror from an instance into a
+trend.
 
 \section*{Reproducibility}
 
