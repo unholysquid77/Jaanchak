@@ -2007,10 +2007,48 @@ cannot touch the shallow-vs-deep ordering that the mirror claim rests on, becaus
 every comparison that bears on the mirror either excludes block 5 or would only
 be strengthened by raising it. The three comparisons above exclude it entirely.
 
-Standing: one draw each. They need three before the paper quotes them, and the
-extension still has to run so block 5 stops being a bound. But the *direction* is
-not in doubt, and §4's "the type×depth interaction is one dataset" entry is now
-answered rather than open.
+### 3.10c Complete: the ISIC MLP curve falls monotonically, span 7.41
+
+Block 0 landed 2026-10-21 15:20 box; all five cells measured.
+`fraction_modified` is 0.0548–0.0550 throughout.
+
+| ISIC, MLP | block 0 | block 2 | block 5 | block 8 | block 11 |
+|---|---|---|---|---|---|
+| accuracy | **50.85** | 50.63 | ≥50.08 *(bound)* | 47.69 | 43.44 |
+
+Paired per-episode, t(99), one draw each, every one settled:
+
+| comparison | diff | ±95% |
+|---|---|---|
+| block 0 − block 11 | **+7.41** | 1.48 |
+| block 2 − block 11 | +7.19 | 1.63 |
+| block 8 − block 11 | +4.25 | 1.27 |
+| block 2 − block 8 | +2.93 | 1.48 |
+
+**Span over the four readable depths: 7.41 points.** That is a lower bound on the
+true span, since block 5 can only rise.
+
+The shape is a **shallow plateau falling to the deep end**: 50.85 / 50.63 /
+≥50.08 are within 0.8 of each other — inside the noise floor's neighbourhood and
+certainly not separable at one draw — then it drops 2.4 to block 8 and another
+4.3 to block 11. So the readable claim is not "block 0 is best" but "the shallow
+half is flat and the deep end is worse", which is the same shape the ISIC
+*attention* curve has, and the opposite of EuroSAT's rise to an interior peak at
+block 8 (80.27 / 80.68 / 86.44 / 88.79 / 84.99, span 8.52).
+
+**What this settles.** The mirror is a property of the **domain shift**, not of a
+parameter type. Both types invert together on ISIC and agree on EuroSAT. §4's
+entry "the type×depth interaction is one dataset" is **answered**: the
+interaction exists and is a magnitude effect, not a sign flip, on both datasets.
+And the paper's interpretation — the depth curve locates where the pretrained
+representation stops transferring — now rests on four curves rather than two.
+
+**Still outstanding, and the section will keep saying so:** one draw per cell;
+three are needed before the paper quotes any of these. Block 5 remains a bound
+until `vit_isicmlppos5_v2` exists; its extension (1e-2, 3e-2) launched 15:25 box.
+Block 5 overtaking block 2 would not change any claim above, since the shallow
+depths are already indistinguishable from one another and every comparison that
+bears on the mirror excludes block 5.
 What is visible is suggestive — block 2's sweep reads 0.5019 and block 5's 0.4896
 against block 11's 0.4293, i.e. shallow above deep by several points, the mirror
 direction — but every one of those shallow numbers is a 50-episode *tuning* row,
