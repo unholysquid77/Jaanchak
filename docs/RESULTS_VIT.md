@@ -1802,15 +1802,20 @@ against each baseline's own wd=0 arm, same tuned lr on both sides, t(99).
 **The prediction, on record in `run_vit_wd.sh`'s header before any of this ran:**
 regularising full fine-tuning helps it; weight decay does not help attention.
 
-| baseline | wd=0 | wd=1e-4 | wd=1e-3 |
-|---|---|---|---|
-| `full_ft` | 83.56 | −0.31 ± 0.89 | **−1.08 ± 0.89 (settled)** |
-| `attn_only_ft` | 85.36 | −0.12 ± 1.01 | +0.61 ± 0.99 |
+| baseline | wd=0 | 1e-4 | 1e-3 | 1e-2 | 1e-1 |
+|---|---|---|---|---|---|
+| `full_ft` | 83.56 | −0.31 ± 0.89 | **−1.08 ± 0.89** | **−3.44 ± 0.98** | **−5.12 ± 1.07** |
+| `attn_only_ft` | 85.36 | −0.12 ± 1.01 | +0.61 ± 0.99 | −0.44 ± 1.03 | *running* |
 
-The second half holds: weight decay does not help attention at any level tested.
-**The first half fails in direction.** Weight decay does not help full
-fine-tuning — it *hurts* it, by a settled 1.08 points at 1e-3, and the trend
-across 0 → 1e-4 → 1e-3 is monotone downward.
+(Five levels, not four — I had mis-read the sweep as stopping at 1e-2.)
+
+The second half holds at face value: weight decay does not help attention at any
+level tested, all three unsettled. **The first half fails in direction, and the
+full sweep makes the failure decisive rather than marginal.** Weight decay does
+not help full fine-tuning — it destroys it, monotonically, by 5.12 points at
+1e-1, with the last three levels settled and the ordering strictly decreasing
+across 0 → 1e-4 → 1e-3 → 1e-2 → 1e-1. This is a dose–response relationship, not
+a null that happened to fall the wrong way.
 
 **Recorded as FAILED, not void.** There is a principled reason the test may be
 invalid, and it is important not to let that reason do the work a new measurement
@@ -1821,9 +1826,27 @@ destroys the pretrained features that are the entire reason for starting from a
 checkpoint. The regulariser that expresses §3.5's intent is L2 toward the
 **pretrained weights** (ℓ²-SP), not toward the origin.
 
+The dose–response strengthens that reading considerably: damage proportional to
+decay strength is exactly what "the penalty is dragging pretrained features
+toward zero" predicts, and is not what a merely ineffective regulariser would
+look like. But it remains an explanation found after the fact.
+
+**A confound in the cross-baseline half, which I had called "holds".** The inner
+optimiser is `torch.optim.Adam(weight_decay=...)`, which applies **coupled** L2 —
+the decay term is added into the gradient and then normalised by Adam's
+second-moment estimate — not AdamW's decoupled decay. So effective shrinkage
+depends on gradient magnitude, and the two arms run at tuned learning rates a
+factor of ten apart (`full_ft` 1e-5, attention 1e-4). **Equal nominal `wd` is
+therefore not equal regularisation strength between the two baselines**, and
+"weight decay hurts full fine-tuning but not attention" must not be read as
+"attention is immune to regularisation". The within-`full_ft` dose–response is
+clean, because nothing varies along it but the decay. The across-baseline
+asymmetry is not a controlled comparison and is not quoted as one.
+
 That is a real confound and I should have caught it when designing the sweep
-rather than when reading it. But it does not rescue the prediction, for the same
-reason §3.7d needed its own out-of-sample point: an explanation produced after
+rather than when reading it — twice over, since it touches both halves of the
+prediction and I had marked one of them confirmed. But it does not rescue the
+prediction, for the same reason §3.7d needed its own out-of-sample point: an explanation produced after
 seeing a failure is a hypothesis, not a result. **The pre-registered test failed.
 The ℓ²-SP version is a different experiment that has not been run.** Only running
 it can change this entry.

@@ -387,21 +387,32 @@ it in place of the gap for that reason.
 
 \paragraph{Failed: weight decay does not repair full fine-tuning.}
 The account's most direct prediction is that constraining the large group should help
-it. Adding weight decay to the inner loop does the opposite. Against its own
-zero-decay arm at the same tuned learning rate, full fine-tuning loses
-\dd{-1.08}{0.89} at $10^{-3}$, with a monotone decline across $0 \to 10^{-4} \to
-10^{-3}$. Attention is unaffected at every level tested (\dd{0.61}{0.99} at $10^{-3}$,
-unsettled). Half the prediction --- that decay would not help attention --- holds; the
-half that mattered fails in direction.
+it. Adding weight decay to the inner loop does the opposite, and does it as a
+dose--response. Against its own zero-decay arm at the same tuned learning rate, full
+fine-tuning loses \dd{-0.31}{0.89} at $10^{-4}$, \dd{-1.08}{0.89} at $10^{-3}$,
+\dd{-3.44}{0.98} at $10^{-2}$ and \dd{-5.12}{1.07} at $10^{-1}$ --- strictly
+decreasing, the last three settled. Attention is unaffected at every level tested
+(\dd{0.61}{0.99} at $10^{-3}$, unsettled). The prediction fails in direction, and the
+monotone decline makes the failure decisive rather than marginal.
 
 We record this as a failure rather than reinterpret it. There is a principled reason the
 test may be the wrong one: weight decay pulls parameters toward \emph{zero}, and
 pretrained weights are nowhere near zero, so in a fine-tuning inner loop
 decay-toward-the-origin does not express ``stay near the prior'' but actively destroys
 the features the checkpoint exists to provide. The regulariser matching the account's
-intent is $\ell^2$ toward the pretrained weights, which we have not run. That
+intent is $\ell^2$ toward the pretrained weights, which we have not run. The
+dose--response is consistent with that reading --- damage proportional to decay
+strength is what dragging pretrained features toward zero would produce --- but the
 explanation arrived after the result, and an explanation produced after a failure is a
-hypothesis, not a finding; it will take the $\ell^2$-SP experiment to change this entry.
+hypothesis, not a finding. It will take the $\ell^2$-SP experiment to change this entry.
+
+We also flag a confound in the other half. The inner optimiser applies \emph{coupled}
+$\ell^2$ (decay added to the gradient, then normalised by Adam's second moment), and
+the two arms run at tuned learning rates a factor of ten apart. Equal nominal decay is
+therefore not equal regularisation strength across baselines, so ``decay hurts full
+fine-tuning but not attention'' is not a controlled comparison and we do not claim
+attention is insensitive to regularisation. The within-\texttt{full\_ft}
+dose--response is clean, because nothing varies along it but the decay.
 
 \paragraph{Scoreboard, and what the mechanism is worth.}
 Two of three pre-registered predictions hold: inner steps and support size. One fails:
