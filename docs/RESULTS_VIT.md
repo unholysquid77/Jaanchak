@@ -1920,7 +1920,25 @@ and ready (extends 1e-2, 3e-2, merges both sweeps, writes `_v2` outputs that
 supersede the originals), and will run when the card frees. **Block 5 is not to be
 quoted, plotted or compared until `vit_isicmlppos5_v2` exists.**
 
-Block 11 is clean: interior optimum at 1e-3, bracketed, 0.4293 on the sweep.
+Block 11 is clean: interior optimum at 1e-3, bracketed, 0.4293 on the sweep and
+**43.44 measured** at 100 episodes. `fraction_modified` reads **0.0549** there,
+matching the 5.50% an MLP block is supposed to open — the selector is verified on
+ISIC as well as EuroSAT, which had not been checked before.
+
+**Block 2 is also clean** (interior optimum at 1e-3, edge report `[]`), which
+materially improves the position §3.10 describes: the mirror hypothesis now has a
+*readable* shallow representative even while block 5 remains a bound. Its
+measurement is running.
+
+**Nothing is read yet, and this is the discipline the section exists to enforce.**
+What is visible is suggestive — block 2's sweep reads 0.5019 and block 5's 0.4896
+against block 11's 0.4293, i.e. shallow above deep by several points, the mirror
+direction — but every one of those shallow numbers is a 50-episode *tuning* row,
+not a 100-episode measurement, blocks 8 and 0 do not exist, block 5 is at an
+edge, and everything here is one draw. Sweep rows and measurements are not
+comparable (§2 fact 6 plus the episode-count difference), so no comparison is
+computed until all five cells are measured, block 5's grid is extended, and the
+load-bearing links have three draws.
 
 ## 4.2 Two fields named `inner_lr`, and which one is real
 
