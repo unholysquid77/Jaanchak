@@ -64,6 +64,13 @@ ISIC_ATTN = {0: "vit_isicpos0", 2: "vit_isicpos2", 5: "vit_isicpos5", 8: "vit_is
              11: "vit_isicpos11"}
 SEED_DIRS = ["vit_poscurve_seeds", "vit_mlpposcurve_seeds", "vit_isicposcurve_seeds"]
 
+# ISIC MLP depth sweep -- the type x depth interaction on the second dataset.
+# _v2 supersedes wherever the grid had to be extended; block 5 hit a TOP EDGE on the
+# first pass (argmax at 3e-3, the last point) so its first-pass cell is a BOUND and
+# must not be read until vit_isicmlppos5_v2 exists. RESULTS_VIT.md §3.10.
+ISIC_MLP = {0: "vit_isicmlppos0", 2: "vit_isicmlppos2", 5: "vit_isicmlppos5",
+            8: "vit_isicmlppos8", 11: "vit_isicmlppos11"}
+
 SHOT_DIRS = {1: "vit_shots1", 5: "vit_2b_eurosat", 20: "vit_shots20"}
 # k=5's frozen reference is deliberately NOT taken from vit_shotsref5. The main
 # corpus (vit_2b_eurosat + vit_seeds_eurosat) already carries frozen_proto at k=5
@@ -129,7 +136,8 @@ def _episodes() -> dict:
               + list(ISIC_ATTN.values()) + SEED_DIRS
               + ["vit_2b_eurosat", "vit_2b_isic", "vit_seeds_eurosat", "vit_seeds_isic"]
               + [d for d in list(SHOT_DIRS.values()) + list(SHOT_REF_DIRS.values())
-                 if d != "vit_2b_eurosat"]):
+                 if d != "vit_2b_eurosat"]
+              + list(ISIC_MLP.values())):
         if os.path.isdir(rdir(d)):
             _load_dir(d, acc)
     return acc
@@ -373,6 +381,10 @@ def key_numbers() -> None:
         ("eurosat", "b8_vs_b5", "attn_block8_ft", "attn_block5_ft"),
         ("eurosat", "b2_vs_b0", "attn_block2_ft", "attn_block0_ft"),
         ("eurosat", "b5mlp_vs_b5attn", "mlp_block5_ft", "attn_block5_ft"),
+        # ISIC MLP: does the mirror hold in a second parameter type? Block 5 is
+        # omitted deliberately -- it is at a top grid edge and is a bound, not a
+        # measurement, until the _v2 run exists (§3.10).
+        ("isic", "b2mlp_vs_b11mlp", "mlp_block2_ft", "mlp_block11_ft"),
     ]
     rows = []
     for ds, name, a, b in comps:

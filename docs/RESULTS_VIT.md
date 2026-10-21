@@ -1930,7 +1930,47 @@ materially improves the position §3.10 describes: the mirror hypothesis now has
 *readable* shallow representative even while block 5 remains a bound. Its
 measurement is running.
 
-**Nothing is read yet, and this is the discipline the section exists to enforce.**
+### 3.10a The mirror DOES hold in the MLP
+
+First readable comparison, 2026-10-21 13:20 box. Both cells measured at 100
+episodes, both with interior bracketed optima at lr=1e-3, both reporting
+`fraction_modified = 0.0549`, both from the same seed-0 episodes:
+
+| ISIC, MLP | accuracy |
+|---|---|
+| block 2 (shallow) | **50.63** |
+| block 11 (deep) | 43.44 |
+
+**Paired per-episode: +7.19 ± 1.63**, t(99). Clears its interval and clears the
+0.6 floor by a factor of twelve.
+
+**This answers the question the sweep exists to answer.** The ISIC inversion is
+not a fact about attention — it reproduces in the MLP, a parameter type twice the
+size. So the mirror is a property of the **domain shift**, not of a parameter
+type, and the paper's interpretation (the depth curve locates where the pretrained
+representation stops transferring) now has two independent types on both datasets.
+
+Three things about its standing, stated precisely:
+
+* **One draw.** It needs three before it goes in the paper. But §2 fact 6 is about
+  results *near the floor*, and +7.19 is not near the floor — it is twelve times
+  it, on an interval of ±1.63. The marginal cases that moved under draws were all
+  within a point or two. This is not one of those, and I will not pretend the
+  uncertainty is symmetric with those cases.
+* **Block 5's edge does not threaten this.** The edge biases against the mirror,
+  and this is a *positive existence claim* about the mirror — §2 fact 5 exactly:
+  an understated favourite cannot manufacture an effect it would suppress. Block 5
+  remains unreadable; this comparison never needed it.
+* **The magnitude comparison is indicative only.** Attention's `b2 − b11` on ISIC
+  is +3.47 ± 1.14 over *three* draws, so calling the MLP mirror "about twice as
+  strong" mixes a one-draw figure with a three-draw one. The direction is solid;
+  the ratio is not a measured quantity and is not quoted as one.
+
+Emitted as `isic b2mlp_vs_b11mlp +7.19 1.63 1 settled` in `key_numbers.dat`, with
+its draw count attached, so the paper cannot quote it as better-supported than it
+is. Block 5 is deliberately **not** in the comparison list.
+
+**Blocks 8 and 0 are still outstanding, and this is the discipline the section exists to enforce.**
 What is visible is suggestive — block 2's sweep reads 0.5019 and block 5's 0.4896
 against block 11's 0.4293, i.e. shallow above deep by several points, the mirror
 direction — but every one of those shallow numbers is a 50-episode *tuning* row,
