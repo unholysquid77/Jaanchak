@@ -24,7 +24,35 @@ import math
 import os
 import statistics as st
 
-OUT = os.path.join(os.path.dirname(__file__), "figdata")
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+OUT = os.path.join(HERE, "figdata")
+
+# Results are addressed from the REPO ROOT, never from the working directory.
+# Until 2026-10-21 every read was a bare "results/..." relative path while OUT was
+# already script-relative -- the worst pairing, because running the script from
+# anywhere but the repo root wrote output to the right place after reading no input
+# at all. On Windows under PyCharm (cwd = the script's own directory) that surfaced
+# as "TypeError: unsupported format string passed to NoneType.__format__" from deep
+# inside an f-string, which says nothing about the actual problem.
+RESULTS = os.path.join(ROOT, "results")
+
+
+def rdir(name: str) -> str:
+    """Absolute path of a results directory."""
+    return os.path.join(RESULTS, name)
+
+
+def require_results() -> None:
+    """Fail at startup, with the reason, rather than N frames deep in a format spec."""
+    if not os.path.isdir(RESULTS):
+        raise SystemExit(
+            f"no results directory at {RESULTS}\n"
+            f"This script reads raw per-episode JSON from the repository's results/ "
+            f"tree and is addressed from the repo root, so it does not matter what "
+            f"directory you run it from -- but the tree does have to be there. If "
+            f"this is a fresh clone, check that results/ was committed."
+        )
 T2, T99 = 4.303, 1.9842
 
 # _v2 supersedes: block 8 attention and block 5 MLP on EuroSAT, block 0 on ISIC, were
@@ -65,7 +93,7 @@ def _load_dir(d: str, acc: dict) -> None:
     The dataset comes from manifest.config.dataset, which run_baselines.py always
     writes -- not from the filename, which is only conventionally formatted.
     """
-    for f in glob.glob(f"results/{d}/*.json"):
+    for f in glob.glob(os.path.join(rdir(d), "*.json")):
         j = json.load(open(f))
         c = j.get("manifest", {}).get("config", {})
         ds = c.get("dataset")
@@ -102,7 +130,7 @@ def _episodes() -> dict:
               + ["vit_2b_eurosat", "vit_2b_isic", "vit_seeds_eurosat", "vit_seeds_isic"]
               + [d for d in list(SHOT_DIRS.values()) + list(SHOT_REF_DIRS.values())
                  if d != "vit_2b_eurosat"]):
-        if os.path.isdir(f"results/{d}"):
+        if os.path.isdir(rdir(d)):
             _load_dir(d, acc)
     return acc
 
@@ -165,6 +193,17 @@ def fig_depth_curves() -> None:
         ea, na, sa = mean_and_draws("eurosat", an)
         em, nm, sm = mean_and_draws("eurosat", f"mlp_block{i}_ft")
         ia, ni, si = mean_and_draws("isic", an)
+        missing = [lbl for lbl, v in (("eurosat/" + an, ea),
+                                      (f"eurosat/mlp_block{i}_ft", em),
+                                      ("isic/" + an, ia)) if v is None]
+        if missing:
+            raise SystemExit(
+                f"depth {i}: no episodes found for {', '.join(missing)}.\n"
+                f"Looked under {RESULTS}. Either those runs have not been pulled "
+                f"from the box, or a results directory was renamed -- check the "
+                f"EURO_ATTN / EURO_MLP / ISIC_ATTN maps at the top of this file "
+                f"against what is actually on disk."
+            )
         rows.append(f"{i} {ea:.2f} {sa or 0:.2f} {em:.2f} {sm or 0:.2f} "
                     f"{ia:.2f} {si or 0:.2f}")
         notes.append((i, na, nm, ni))
@@ -202,7 +241,7 @@ def fig_inner_steps() -> None:
     """Figure 4: the inner-step crossover. attn improves with more steps, full_ft
     degrades past 10. Single draw at 5 and 10, so all three use seed 0."""
     def one(d, base):
-        f = glob.glob(f"results/{d}/baseline_eurosat_{base}_5shot_seed0.json")
+        f = glob.glob(os.path.join(rdir(d), f"baseline_eurosat_{base}_5shot_seed0.json"))
         if not f:
             return None
         return st.mean([e["accuracy"] * 100 for e in json.load(open(f[0]))["episodes"]])
@@ -260,7 +299,7 @@ def fig_weight_decay() -> None:
     measured in the SAME sweep, at the same tuned lr.
     """
     acc: dict = {}
-    for d in sorted(glob.glob("results/vit_wd_*")):
+    for d in sorted(glob.glob(os.path.join(RESULTS, "vit_wd_*"))):
         wd = os.path.basename(d)[len("vit_wd_"):]
         for f in glob.glob(f"{d}/*.json"):
             j = json.load(open(f))
@@ -347,8 +386,9 @@ def key_numbers() -> None:
 
 
 if __name__ == "__main__":
+    require_results()
     os.makedirs(OUT, exist_ok=True)
-    print("figure data:")
+    print(f"figure data (reading {RESULTS}):")
     fig_depth_curves()
     fig_params_vs_acc()
     fig_inner_steps()

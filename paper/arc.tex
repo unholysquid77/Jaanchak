@@ -119,9 +119,15 @@ $10{,}015$ images), both target sets of the BSCD-FSL cross-domain
 benchmark~\cite{guo2020}. CropDiseases was out of scope and ChestX was unobtainable, so
 the shift ladder has two rungs rather than four --- see Section~\ref{sec:limitations}.
 
-Both are partitioned $60/20/20$ train/val/test by
-\emph{group} at a fixed partition seed, giving EuroSAT $16{,}200/5{,}400/5{,}400$ images
-and ISIC $6{,}021/1{,}987/2{,}007$ images; all classes are present in every split of both.
+Both are partitioned by \emph{group} at a fixed partition seed, at fractions chosen per
+dataset rather than shared: EuroSAT $0.2/0.1/0.7$ train/val/test, giving
+$5{,}400/2{,}700/18{,}900$ images, and ISIC $0.1/0.4/0.5$, giving
+$1{,}000/4{,}013/5{,}002$ images over $747/2{,}988/3{,}735$ lesions. All classes are
+present in every split of both. The fractions differ because ISIC's smallest classes are
+small enough that a large training share leaves too few groups per class to sample
+$5$-way episodes from the remainder; the asymmetry is deliberate and matches the
+ResNet arm. Note that validation is the \emph{larger} partition on ISIC --- episodes are
+drawn from $4{,}013$ images --- while on EuroSAT it is $2{,}700$.
 The grouping key differs, and the difference matters. On ISIC it is the \texttt{lesion\_id}
 from the HAM10000 metadata, so the $10{,}015$ images collapse to $7{,}470$ lesions
 ($4{,}482/1{,}494/1{,}494$) and group-disjointness is load-bearing: roughly a quarter of
@@ -391,9 +397,13 @@ it. Adding weight decay to the inner loop does the opposite, and does it as a
 dose--response. Against its own zero-decay arm at the same tuned learning rate, full
 fine-tuning loses \dd{-0.31}{0.89} at $10^{-4}$, \dd{-1.08}{0.89} at $10^{-3}$,
 \dd{-3.44}{0.98} at $10^{-2}$ and \dd{-5.12}{1.07} at $10^{-1}$ --- strictly
-decreasing, the last three settled. Attention is unaffected at every level tested
-(\dd{0.61}{0.99} at $10^{-3}$, unsettled). The prediction fails in direction, and the
-monotone decline makes the failure decisive rather than marginal.
+decreasing, the last three settled. The prediction fails in direction, and the monotone
+decline makes the failure decisive rather than marginal.
+
+Attention is unaffected up to $10^{-2}$ (\dd{0.61}{0.99} at $10^{-3}$, \dd{-0.44}{1.03}
+at $10^{-2}$, both unsettled) but is destroyed at $10^{-1}$ (\dd{-5.59}{1.19}), by as
+much as full fine-tuning is. So the asymmetry is in \emph{where the damage threshold
+sits}, not in whether a small group can be harmed by regularisation at all.
 
 We record this as a failure rather than reinterpret it. There is a principled reason the
 test may be the wrong one: weight decay pulls parameters toward \emph{zero}, and

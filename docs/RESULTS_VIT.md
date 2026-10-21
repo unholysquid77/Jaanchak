@@ -1805,12 +1805,19 @@ regularising full fine-tuning helps it; weight decay does not help attention.
 | baseline | wd=0 | 1e-4 | 1e-3 | 1e-2 | 1e-1 |
 |---|---|---|---|---|---|
 | `full_ft` | 83.56 | −0.31 ± 0.89 | **−1.08 ± 0.89** | **−3.44 ± 0.98** | **−5.12 ± 1.07** |
-| `attn_only_ft` | 85.36 | −0.12 ± 1.01 | +0.61 ± 0.99 | −0.44 ± 1.03 | *running* |
+| `attn_only_ft` | 85.36 | −0.12 ± 1.01 | +0.61 ± 0.99 | −0.44 ± 1.03 | **−5.59 ± 1.19** |
 
 (Five levels, not four — I had mis-read the sweep as stopping at 1e-2.)
 
-The second half holds at face value: weight decay does not help attention at any
-level tested, all three unsettled. **The first half fails in direction, and the
+**The second half does not hold the way I first wrote it.** Weight decay never
+*helps* attention, true. But attention is **destroyed at 1e-1** (−5.59 ± 1.19,
+settled) — by slightly more than full fine-tuning is (−5.12). So attention is not
+immune to decay; its damage threshold is simply higher, somewhere between 1e-2
+and 1e-1. "Attention is unaffected at every level tested" was true only while
+1e-1 was still running, and I wrote it then. The surviving statement is narrower:
+the asymmetry is in *where the threshold sits*, not in whether a small group can
+be harmed at all — and per the confound below, even that threshold difference
+cannot be attributed to parameter count. **The first half fails in direction, and the
 full sweep makes the failure decisive rather than marginal.** Weight decay does
 not help full fine-tuning — it destroys it, monotonically, by 5.12 points at
 1e-1, with the last three levels settled and the ordering strictly decreasing
