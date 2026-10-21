@@ -1794,6 +1794,63 @@ like √n in the mean while the real effect does not.
 
 wd=1e-4 and the rest of the sweep are still running.
 
+### 3.9 Weight decay, part 2: the prediction FAILS
+
+Measured 2026-10-21 08:20 box (wd=1e-2 still running). Paired per-episode
+against each baseline's own wd=0 arm, same tuned lr on both sides, t(99).
+
+**The prediction, on record in `run_vit_wd.sh`'s header before any of this ran:**
+regularising full fine-tuning helps it; weight decay does not help attention.
+
+| baseline | wd=0 | wd=1e-4 | wd=1e-3 |
+|---|---|---|---|
+| `full_ft` | 83.56 | −0.31 ± 0.89 | **−1.08 ± 0.89 (settled)** |
+| `attn_only_ft` | 85.36 | −0.12 ± 1.01 | +0.61 ± 0.99 |
+
+The second half holds: weight decay does not help attention at any level tested.
+**The first half fails in direction.** Weight decay does not help full
+fine-tuning — it *hurts* it, by a settled 1.08 points at 1e-3, and the trend
+across 0 → 1e-4 → 1e-3 is monotone downward.
+
+**Recorded as FAILED, not void.** There is a principled reason the test may be
+invalid, and it is important not to let that reason do the work a new measurement
+should do. The reason: weight decay pulls weights toward **zero**, and the
+pretrained weights are nowhere near zero. So in a fine-tuning inner loop,
+decay-toward-zero does not implement "stay close to the prior" — it actively
+destroys the pretrained features that are the entire reason for starting from a
+checkpoint. The regulariser that expresses §3.5's intent is L2 toward the
+**pretrained weights** (ℓ²-SP), not toward the origin.
+
+That is a real confound and I should have caught it when designing the sweep
+rather than when reading it. But it does not rescue the prediction, for the same
+reason §3.7d needed its own out-of-sample point: an explanation produced after
+seeing a failure is a hypothesis, not a result. **The pre-registered test failed.
+The ℓ²-SP version is a different experiment that has not been run.** Only running
+it can change this entry.
+
+**Mechanism scoreboard: 2 for 3.**
+
+* §3.6 inner-step test — **confirmed**.
+* §3.7d support-size test — **confirmed**, on the gains-over-frozen statistic,
+  with one genuinely out-of-sample point (k=20).
+* §3.9 regularisation test — **failed**.
+
+A weak post-hoc consistency worth naming and not leaning on: weight decay hurts
+`full_ft` (−1.08) more than `attn_only_ft` (+0.61), which is what you would expect
+if the damage scales with how many pretrained parameters are being dragged toward
+zero. That is consistent with the over-optimisation picture, but it is a story
+fitted to the data and carries no weight as evidence.
+
+**What this costs.** §3.5 keeps its two confirmations and loses this one. The
+honest summary of the mechanism is now: more inner optimisation helps the small
+group and hurts the large one (§3.6), and the large group's deficit shrinks as
+the support set grows (§3.7d) — but the one intervention that should have
+*repaired* full fine-tuning instead made it worse, and we do not yet know whether
+that is because the mechanism is wrong or because the intervention was.
+
+Unchanged: the depth result, which rests on `full_ft` losing at k=5 and not on
+any of this.
+
 ## 4.2 Two fields named `inner_lr`, and which one is real
 
 Recorded 2026-10-21 04:30 box, after it cost ten minutes and a false alarm.
