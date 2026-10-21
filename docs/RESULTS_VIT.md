@@ -1881,6 +1881,47 @@ that is because the mechanism is wrong or because the intervention was.
 Unchanged: the depth result, which rests on `full_ft` losing at k=5 and not on
 any of this.
 
+### 3.10 ISIC type x depth, in flight — and block 5 is at a top edge
+
+Started 2026-10-21 09:51 box via `scripts/run_vit_position_mlp_isic.sh`. This
+closes §4's "the type x depth interaction is one dataset" entry: the MLP depth
+sweep has only ever been run on EuroSAT, where it reproduced the attention
+curve's shape. On ISIC the attention curve is *mirrored*, so the question is
+whether the mirror is a property of the domain shift (MLP mirrors too) or of a
+parameter type (MLP does not).
+
+**Written before any curve is read, because it decides whether one can be.**
+
+| depth | sweep | edge report | tuned lr | status |
+|---|---|---|---|---|
+| 5 | done | **top edge at 3e-3** | 3e-3 | **BOUND, not a measurement** |
+| 11 | done | `[]` interior | 1e-3 | readable |
+| 2, 8, 0 | pending | — | — | — |
+
+`mlp_block5_ft` peaks at **3e-3, the last point on the grid**, so its accuracy is
+a lower bound and the cell is not readable until the grid is extended. The sweep
+rose monotonically across all six points (0.4115 → 0.4117 → 0.4221 → 0.4552 →
+… → 0.4896), which is the signature of a grid that stops too early rather than
+of an optimum near the end.
+
+**Which way this edge leans, which is the part that matters.** Block 5 is the
+*shallow* end on ISIC — the depth that must win if the mirror holds in MLP. An
+edge there **understates the shallow end**, which biases the comparison *against*
+the mirror. So by §2 facts 4 and 5:
+
+* If the mirror shows up anyway, the finding is safe — a positive existence claim
+  survives an understated favourite.
+* If the mirror does **not** show up, that null is **not readable**, because the
+  one depth that would have produced it was measured at a bound.
+
+This is the fifth grid edge in the project and the second whose lean runs against
+the hypothesis under test. `scripts/run_vit_position_mlp_isic_hi.sh` is written
+and ready (extends 1e-2, 3e-2, merges both sweeps, writes `_v2` outputs that
+supersede the originals), and will run when the card frees. **Block 5 is not to be
+quoted, plotted or compared until `vit_isicmlppos5_v2` exists.**
+
+Block 11 is clean: interior optimum at 1e-3, bracketed, 0.4293 on the sweep.
+
 ## 4.2 Two fields named `inner_lr`, and which one is real
 
 Recorded 2026-10-21 04:30 box, after it cost ten minutes and a false alarm.
