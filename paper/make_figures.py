@@ -385,6 +385,9 @@ def key_numbers() -> None:
         # omitted deliberately -- it is at a top grid edge and is a bound, not a
         # measurement, until the _v2 run exists (§3.10).
         ("isic", "b2mlp_vs_b11mlp", "mlp_block2_ft", "mlp_block11_ft"),
+        ("isic", "b2mlp_vs_b8mlp", "mlp_block2_ft", "mlp_block8_ft"),
+        ("isic", "b8mlp_vs_b11mlp", "mlp_block8_ft", "mlp_block11_ft"),
+        ("isic", "b0mlp_vs_b11mlp", "mlp_block0_ft", "mlp_block11_ft"),
     ]
     rows = []
     for ds, name, a, b in comps:

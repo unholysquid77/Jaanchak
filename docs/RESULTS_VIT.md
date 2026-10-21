@@ -1970,7 +1970,47 @@ Emitted as `isic b2mlp_vs_b11mlp +7.19 1.63 1 settled` in `key_numbers.dat`, wit
 its draw count attached, so the paper cannot quote it as better-supported than it
 is. Block 5 is deliberately **not** in the comparison list.
 
-**Blocks 8 and 0 are still outstanding, and this is the discipline the section exists to enforce.**
+### 3.10b The full ISIC MLP curve: monotone, and the edge cannot rescue the deep end
+
+All five sweeps closed; four cells measured (block 0's measurement started 14:15
+box). `fraction_modified` reads 0.0549–0.0550 at every depth, so the selector
+opened the intended 5.50% everywhere.
+
+| ISIC, MLP | block 0 | block 2 | block 5 | block 8 | block 11 |
+|---|---|---|---|---|---|
+| accuracy | *pending* | **50.63** | ≥50.08 *(bound)* | 47.69 | 43.44 |
+| grid | interior | interior | **TOP EDGE** | interior | interior |
+
+Readable pairs, paired per-episode, t(99), one draw each:
+
+| comparison | diff | ±95% |
+|---|---|---|
+| block 2 − block 11 | **+7.19** | 1.63 |
+| block 8 − block 11 | **+4.25** | 1.27 |
+| block 2 − block 8 | **+2.93** | 1.48 |
+
+All three settled for a single draw, all in the mirror direction, and they are
+mutually consistent: 2.93 + 4.25 = 7.18 against the directly measured 7.19.
+
+**Monotone decreasing from shallow to deep**, which is the cleanest shape this
+project has produced on ISIC — the attention curve there was a plateau over 0–5
+with the argmax moving between draws, whereas the MLP orders its depths without
+ambiguity. Set beside EuroSAT MLP (80.27 / 80.68 / 86.44 / 88.79 / 84.99, rising
+to an interior peak at 8), the two curves run in opposite directions across the
+same five positions in the same parameter type.
+
+**Block 5's edge cannot change the conclusion, and it is worth being explicit
+about why.** The edge means 50.08 is a *lower* bound, so extending the grid can
+only move block 5 **up**. Up is the shallow-end direction. So the extension can
+alter the shape of the shallow plateau — block 5 could overtake block 2 — but it
+cannot touch the shallow-vs-deep ordering that the mirror claim rests on, because
+every comparison that bears on the mirror either excludes block 5 or would only
+be strengthened by raising it. The three comparisons above exclude it entirely.
+
+Standing: one draw each. They need three before the paper quotes them, and the
+extension still has to run so block 5 stops being a bound. But the *direction* is
+not in doubt, and §4's "the type×depth interaction is one dataset" entry is now
+answered rather than open.
 What is visible is suggestive — block 2's sweep reads 0.5019 and block 5's 0.4896
 against block 11's 0.4293, i.e. shallow above deep by several points, the mirror
 direction — but every one of those shallow numbers is a 50-episode *tuning* row,
