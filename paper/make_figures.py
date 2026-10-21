@@ -37,7 +37,17 @@ ISIC_ATTN = {0: "vit_isicpos0", 2: "vit_isicpos2", 5: "vit_isicpos5", 8: "vit_is
 SEED_DIRS = ["vit_poscurve_seeds", "vit_mlpposcurve_seeds", "vit_isicposcurve_seeds"]
 
 SHOT_DIRS = {1: "vit_shots1", 5: "vit_2b_eurosat", 20: "vit_shots20"}
-SHOT_REF_DIRS = {1: "vit_shotsref1", 5: "vit_shotsref5", 20: "vit_shotsref20"}
+# k=5's frozen reference is deliberately NOT taken from vit_shotsref5. The main
+# corpus (vit_2b_eurosat + vit_seeds_eurosat) already carries frozen_proto at k=5
+# over three draws, which is strictly better than shotsref5's one, and loading
+# both tripped the duplicate check on ('eurosat', 5, 'frozen_proto', 0) -- the
+# guard working as designed on a genuine re-measurement.
+#
+# Nothing is lost by dropping it: the two runs agree to +0.00 +/- 0.00, paired,
+# bit-for-bit over all 100 episodes. frozen_proto takes no gradient steps, so
+# that is forward-pass-only reproducibility and it is exact. See RESULTS_VIT.md
+# §3.7e -- the ~0.6 floor is entirely in the optimiser path.
+SHOT_REF_DIRS = {1: "vit_shotsref1", 20: "vit_shotsref20"}
 
 
 def _load_dir(d: str, acc: dict) -> None:

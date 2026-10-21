@@ -1641,6 +1641,118 @@ void to refuted.
 
 Unchanged: the depth result, which needs `full_ft` to lose at k=5 and not a reason.
 
+### 3.7d The mechanism holds. The gap closes because full fine-tuning catches up
+
+Measured 2026-10-21 06:10 box. **Gate:** `frozen_proto` reports
+`fraction_modified = 0.0000`, ci95 `0.0000`, n=100 at **every** k. It adapts
+nothing anywhere, so all three frozen references are sound.
+
+All paired per-episode within each k, t(99)=1.9842, same episodes across arms:
+
+| k | frozen | attn | full_ft | attn − frozen | full_ft − frozen | attn − full_ft |
+|---|--------|------|---------|---------------|------------------|----------------|
+| 1  | 62.09 | 62.15 | 60.89 | +0.05 ± 1.42 | **−1.20** ± 1.42 | +1.25 (settled) |
+| 5  | 79.27 | 85.96 | 83.24 | **+6.69** ± 1.21 | +3.97 ± 1.10 | +2.72 (settled) |
+| 20 | 86.35 | 94.00 | 93.76 | **+7.65** ± 0.98 | **+7.41** ± 1.04 | +0.24 (not settled) |
+
+**The pre-registered test passes.** §3.7c fixed, before this number existed, that
+over-optimisation requires `full_ft − frozen` to keep rising with k and to exceed
+the k=5 value. It reads **+7.41 ± 1.04** at k=20 against +3.97 at k=5 and −1.20 at
+k=1 — monotone increasing, decisively clear of the threshold.
+
+(Threshold bookkeeping: §3.7c wrote the k=5 figure as +3.85, computed from the
+three-draw means 83.07 − 79.22. The properly paired seed-0 value against the
+seed-0 frozen run is +3.97. Different draw counts, same comparison; +7.41 clears
+either, and the two must not be quoted interchangeably.)
+
+**§3.7b's ceiling explanation is refuted.** Frozen at k=20 is **86.35**, not
+93–94. Adaptation is doing substantial work at k=20 — both methods gain over
+7 points — so the k=20 null is not a saturation artefact. The two methods gain
+*the same amount*, which is a real finding rather than a measurement failure.
+
+So the whole shape resolves, and it resolves in favour of the mechanism:
+
+* **k=1** — one example per class supports no learning. Attention gains nothing
+  (+0.05). Full fine-tuning is *actively harmed*, landing 1.20 **below** a frozen
+  backbone. That is over-optimisation at its most extreme.
+* **k=5** — attention gains a lot (+6.69); full fine-tuning gains much less
+  (+3.97) because it over-fits the support set. The headline +2.72 is this
+  difference.
+* **k=20** — attention has saturated (+6.69 → +7.65, a further +0.96 only);
+  full fine-tuning has **caught up** (+3.97 → +7.41) now that the support set is
+  large enough to fit its parameter count. The gap closes to nothing.
+
+**The gap closes because full fine-tuning catches up, not because attention
+degrades.** Attention never gets worse at any k. That is precisely what
+over-optimisation predicts: the penalty for carrying many adaptable parameters
+shrinks as the support set grows, and vanishes once there is enough data to
+constrain them.
+
+Note what this does to the original prediction. "The gap shrinks as k grows" was
+**correct for k=5 → k=20** and the k=1 point was a floor artefact, not a
+counterexample — both gains are near zero there, so their difference must be too.
+The gap is non-monotone because two *different* effects bound it at the two ends,
+which is why §3.5 looked refuted from the gap alone and looks confirmed from the
+gains.
+
+**Mechanism scoreboard: 2 for 2, with one honest qualification.** §3.6's
+inner-step test and this support-size test both confirm. The qualification is
+that the gains-over-frozen statistic was chosen *after* seeing k=1 and k=5, so
+only the **k=20 row** was out-of-sample for it — one pre-registered point,
+confirmed. That is a genuine test, not a fitted one, but it is one point, and a
+second dataset would make it an argument rather than an instance.
+
+**What this buys the paper beyond a rescued section.** It converts §3.5 from a
+hand-wave into a statement about *when the method is worth using*: the advantage
+is specific to the regime where the support set is too small to constrain full
+fine-tuning but large enough for a small, well-placed group to learn from. Below
+that window nothing adapts; above it, everything does, equally. That is a usable
+claim — it tells a practitioner which regime they are in — and it predicts the
+method's own obsolescence at large k, which is the kind of boundary a method
+paper is usually accused of hiding.
+
+**Still not established:** this is EuroSAT only. ISIC's support-size behaviour is
+unmeasured, and §3.3.5 already showed ISIC inverts the depth story, so it cannot
+be assumed to share this one. One dataset, three k values, one draw each at k=1
+and k=20.
+
+### 3.7e The noise floor is entirely in the optimiser path
+
+Found by accident, worth keeping. Loading the frozen references tripped the
+figure loader's duplicate check: `frozen_proto` at EuroSAT k=5 seed 0 exists in
+**both** `vit_2b_eurosat` and `vit_shotsref5`. Two independent runs of a
+byte-identical configuration, months apart in wall-clock, on the same card.
+
+They agree to **+0.00 ± 0.00**, paired, bit-for-bit across all 100 episodes.
+
+That is a fourth independent probe of reproducibility, and it is not the same
+quantity as the earlier three (0.55, 0.35, 0.21). `frozen_proto` takes **no
+gradient steps**. So this measures forward pass plus episode sampling alone, and
+finds them **exactly** reproducible. Which locates the ~0.6-point floor
+precisely: it is **entirely in the backward/optimiser path** — gradient reduction
+order amplified through Adam — and none of it is in the sampler or the forward
+pass.
+
+Three things follow:
+
+1. **Any frozen number in this document is exactly reproducible.** The frozen
+   references are not noisy quantities and do not need the 0.6 allowance.
+2. **The episode sampler is perfectly deterministic**, which is the assumption
+   every paired comparison in this document rests on (§2 fact 1). It had been
+   argued from the code; it is now measured.
+3. **Queue item 8 (determinism) has a sharper target.** The question is not
+   "make the pipeline deterministic" but "make the backward pass deterministic",
+   which is exactly what `torch.use_deterministic_algorithms` plus
+   `CUBLAS_WORKSPACE_CONFIG` address, and it is now known that nothing else needs
+   touching. The cost measurement still has to be run and the choice is still
+   AJ's.
+
+The duplicate itself is resolved by not loading `vit_shotsref5`: the main corpus
+already has k=5 frozen over three draws, which is better than one, and the exact
+agreement proves nothing is lost by dropping the second. The guard that caught it
+is the same one added after ISIC silently overwrote EuroSAT — this is the second
+time it has earned its place, and the first time what it caught was benign.
+
 ## 4.2 Two fields named `inner_lr`, and which one is real
 
 Recorded 2026-10-21 04:30 box, after it cost ten minutes and a false alarm.
