@@ -106,6 +106,65 @@ def test_every_quoted_margin_comes_from_a_generated_table(tex: str) -> None:
     )
 
 
+def test_plotted_columns_exist_and_are_numeric(tex: str) -> None:
+    """Every column a figure plots must exist in its table and hold real numbers.
+
+    Two distinct ways a figure breaks silently, both of which have been live in
+    this repo today:
+
+    1. A renamed or removed column. pgfplots errors at build time, which is loud,
+       but only if someone builds -- and this container has no texlive.
+    2. A column of ``nan``. make_figures.py writes "nan" where a measurement does
+       not exist yet, by design, so that a missing reference cannot be mistaken
+       for a measured one. That is right for a data table and fatal for a plot:
+       the support-size figure's ``frozen`` column read nan for several hours
+       between the figure being written and frozen_proto being measured at k=1
+       and k=20. pgfplots would have drawn an empty or partial series rather than
+       failing.
+
+    So a plotted nan is treated as an error here. The fix is to not plot the
+    series until it is measured, not to paper over the gap.
+    """
+    figdata = TEX.parent / "figdata"
+    refs = re.findall(
+        r"table\[([^\]]*)\]\s*\{figdata/([A-Za-z0-9_]+\.dat)\}", tex
+    )
+    assert refs, "no pgfplots table references found -- the regex or the tex changed"
+    problems: list[str] = []
+    for spec, name in refs:
+        f = figdata / name
+        if not f.exists():
+            problems.append(f"{name}: missing")
+            continue
+        lines = f.read_text().splitlines()
+        header = lines[0].split()
+        rows = [l.split() for l in lines[1:] if l.strip()]
+        wanted = re.findall(r"(?:x|y|y\s*error|meta)\s*=\s*([A-Za-z0-9_]+)", spec)
+        for col in wanted:
+            if col not in header:
+                problems.append(f"{name}: plots column '{col}', header is {header}")
+                continue
+            i = header.index(col)
+            for r in rows:
+                if i >= len(r):
+                    problems.append(f"{name}: row too short for '{col}'")
+                    break
+                v = r[i]
+                if v.lower() in ("nan", "inf", "-inf"):
+                    problems.append(
+                        f"{name}: column '{col}' contains {v} -- a plotted series "
+                        f"with no measurement behind it"
+                    )
+                    break
+                try:
+                    float(v)
+                except ValueError:
+                    if col != "label":  # params_vs_acc carries a symbolic meta column
+                        problems.append(f"{name}: column '{col}' has non-numeric {v!r}")
+                    break
+    assert not problems, "figure/table mismatches: " + "; ".join(problems)
+
+
 def test_comparators_are_not_claimed_to_share_our_checkpoint(tex: str) -> None:
     """Regression guard on a specific false claim.
 
