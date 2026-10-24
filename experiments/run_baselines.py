@@ -125,6 +125,12 @@ def main() -> None:
                    help="L2 on the adapted BACKBONE parameters only; the head's "
                         "learnable temperature is never decayed (see EpisodeRunner). "
                         "0.0 is bit-identical to no weight decay.")
+    p.add_argument("--inner-l2sp", type=float, default=0.0,
+                   help="l2-SP: penalise ||theta - theta_0||^2 toward the PRETRAINED "
+                        "weights instead of toward the origin. Mutually exclusive "
+                        "with --inner-weight-decay. 0.0 is bit-identical to neither "
+                        "(no code runs). This is the experiment that separates the "
+                        "two readings of RESULTS_VIT.md §3.9's failed prediction.")
     p.add_argument("--objective", default="two_view", choices=["two_view", "loo", "self"])
     p.add_argument("--bn-mode", default="eval", choices=["eval", "train"],
                    help="'train' enables transductive BatchNorm; report it separately")
@@ -196,6 +202,7 @@ def main() -> None:
         inner_steps=args.inner_steps,
         inner_lr=args.inner_lr,
         inner_weight_decay=args.inner_weight_decay,
+        inner_l2sp=args.inner_l2sp,
         amp=not args.no_amp,
         objective=args.objective,
         bn_mode=args.bn_mode,
@@ -265,6 +272,7 @@ def main() -> None:
                     "seed": seed,
                     "inner_lr": runner.inner_lr,
                     "inner_weight_decay": runner.inner_weight_decay,
+                    "inner_l2sp": runner.inner_l2sp,
                     "inner_steps": runner.inner_steps,
                     "tuned": bool(setting),
                     "summary": summary,

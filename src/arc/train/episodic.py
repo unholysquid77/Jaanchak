@@ -494,6 +494,7 @@ class EpisodeRunner:
         inner_steps: int = 20,
         inner_lr: float = 1e-4,
         inner_weight_decay: float = 0.0,
+        inner_l2sp: float = 0.0,
         amp: bool = True,
         objective: ObjectiveName = "two_view",
         bn_mode: str = "eval",
@@ -511,6 +512,31 @@ class EpisodeRunner:
                 f"inner_weight_decay must be non-negative, got {inner_weight_decay}"
             )
         self.inner_weight_decay = inner_weight_decay
+        # l2-SP: penalise ||theta - theta_0||^2 rather than ||theta||^2, where theta_0
+        # is the pretrained weight this runner already snapshots in self._pristine.
+        #
+        # This exists because of a specific negative result. Adding ordinary weight
+        # decay to the inner loop was pre-registered as the repair for full
+        # fine-tuning's over-optimisation and it made things WORSE at every dose
+        # (RESULTS_VIT.md §3.9). Two readings survive that: either the
+        # over-optimisation account is wrong, or decay toward the ORIGIN is the wrong
+        # regulariser from a pretrained initialisation -- shrinking a good weight
+        # toward zero destroys information the pretraining paid for, which is not what
+        # "stay close to where you started" was supposed to mean. l2-SP is the
+        # intervention that separates those two, because it regularises toward the
+        # pretrained point instead. If the account is right, l2-SP should help full
+        # fine-tuning where decay hurt it.
+        if inner_l2sp < 0:
+            raise ValueError(f"inner_l2sp must be non-negative, got {inner_l2sp}")
+        if inner_l2sp > 0 and inner_weight_decay > 0:
+            raise ValueError(
+                "inner_weight_decay and inner_l2sp are both set. They are two "
+                "different answers to the same question -- decay toward the origin "
+                "versus decay toward the pretrained point -- and running both at "
+                "once produces a number that tests neither. §3.9's confound was "
+                "exactly this kind of coupling; pick one."
+            )
+        self.inner_l2sp = inner_l2sp
         self.amp = amp and self.device.type == "cuda"
         self.objective = objective
         self.grad_clip = grad_clip
@@ -605,6 +631,35 @@ class EpisodeRunner:
         head_params = list(self.head.parameters())
         params = backbone_params + head_params
 
+        # l2-SP reference pairs, built once per episode. Taken by NAME rather than by
+        # zipping two parameter lists: backbone_params is filtered by requires_grad,
+        # so it is a subset of adapted.parameters() whose membership depends on the
+        # selector, and a positional zip against the full snapshot would silently
+        # pair block 8's weight with block 0's under any single-block baseline. The
+        # names come from the same state_dict the snapshot was taken from, so a
+        # missing key is a bug in this pairing rather than something to tolerate.
+        l2sp_pairs: list[tuple[torch.Tensor, torch.Tensor]] = []
+        if self.inner_l2sp > 0:
+            for name, p in self.backbone.adapted.named_parameters():
+                if not p.requires_grad:
+                    continue
+                if name not in self._pristine:
+                    raise KeyError(
+                        f"l2-SP: adapted parameter {name!r} has no entry in the "
+                        f"pristine snapshot, so there is no theta_0 to pull it "
+                        f"toward. The snapshot is taken from "
+                        f"backbone.adapted.state_dict() at construction; a "
+                        f"parameter that appears later is not covered by it."
+                    )
+                l2sp_pairs.append((p, self._pristine[name]))
+            if not l2sp_pairs:
+                raise ValueError(
+                    "inner_l2sp is set but no adapted backbone parameter requires "
+                    "grad, so the penalty would be identically zero and the run "
+                    "would be indistinguishable from the unregularised one while "
+                    "being reported as regularised."
+                )
+
         # Weight decay goes on the backbone only, in its own param group.
         #
         # ProtoHead.log_temperature is a learnable Parameter whose cosine default is
@@ -647,6 +702,21 @@ class EpisodeRunner:
                     self.head,
                     objective=self.objective,
                 )
+                # The penalty is added to the LOSS, not to the gradient, so that
+                # autograd and the AMP scaler handle it on the same path as every
+                # other term. Adding lambda*(theta - theta_0) to .grad by hand would
+                # have to be done in unscaled space, i.e. after scaler.unscale_, and
+                # would therefore be skipped on exactly the steps AMP discards --
+                # making the dose silently depend on gradient overflow.
+                #
+                # Computed in fp32 regardless of autocast: it is a sum over ~86M
+                # squared differences for full fine-tuning, which is precisely the
+                # shape of sum that loses its small terms in fp16.
+                if l2sp_pairs:
+                    pen = sum(
+                        ((p.float() - ref.float()) ** 2).sum() for p, ref in l2sp_pairs
+                    )
+                    loss = loss + 0.5 * self.inner_l2sp * pen
             scaler.scale(loss).backward()
 
             if self.grad_clip is not None:
