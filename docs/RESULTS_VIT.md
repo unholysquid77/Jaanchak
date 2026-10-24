@@ -2119,13 +2119,13 @@ with the thing being measured.
 | block 2 − block 8 | +2.93 ± 1.48 | **+2.82 ± 0.41** | settled both |
 | block 0 − block 5 | +0.95 ± 1.46 | **−0.08 ± 2.21** | unsettled both, **sign flipped** |
 
-**The four large links survived and tightened.** Three of the five intervals got
+**The four large links survived and tightened.** Four of the six intervals got
 *narrower* going from 100 paired episodes to 3 draws, which is the pattern to
 expect when the between-draw variance is small relative to the effect: the
 per-episode interval was measuring episode sampling, the per-seed one measures
-the thing that actually limits a claim. Block 0 − block 11 is the exception, and
-its interval nearly doubled (1.48 → 2.37) because block 0 is the noisiest cell
-(s.d. 1.53, more than twice block 11's).
+the thing that actually limits a claim. The two that widened are the two
+involving block 0 (1.48 → 2.37 and 1.46 → 2.21), because block 0 is the noisiest
+cell — s.d. 1.53 across draws, more than twice block 11's 0.58.
 
 **The one that moved is the one that was predicted to move.** §3.10c said the
 readable claim was the *shape* — a flat shallow plateau falling to the deep end —
