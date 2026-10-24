@@ -62,13 +62,17 @@ EURO_MLP = {0: "vit_mlppos0", 2: "vit_mlppos2", 5: "vit_mlppos5_v2", 8: "vit_mlp
             11: "vit_mlppos11"}
 ISIC_ATTN = {0: "vit_isicpos0", 2: "vit_isicpos2", 5: "vit_isicpos5", 8: "vit_isicpos8",
              11: "vit_isicpos11"}
-SEED_DIRS = ["vit_poscurve_seeds", "vit_mlpposcurve_seeds", "vit_isicposcurve_seeds"]
+SEED_DIRS = ["vit_poscurve_seeds", "vit_mlpposcurve_seeds", "vit_isicposcurve_seeds",
+             "vit_isicmlpposcurve_seeds"]
 
 # ISIC MLP depth sweep -- the type x depth interaction on the second dataset.
-# _v2 supersedes wherever the grid had to be extended; block 5 hit a TOP EDGE on the
-# first pass (argmax at 3e-3, the last point) so its first-pass cell is a BOUND and
-# must not be read until vit_isicmlppos5_v2 exists. RESULTS_VIT.md §3.10.
-ISIC_MLP = {0: "vit_isicmlppos0", 2: "vit_isicmlppos2", 5: "vit_isicmlppos5",
+# Block 5 is read from _v2: it hit a TOP EDGE on the first pass (argmax at 3e-3, the
+# last grid point), so the extension added 1e-2 and 3e-2 and re-measured. The merged
+# grid has no edge, and 3e-3 turned out to be the genuine optimum -- 1e-2 collapses to
+# 38.00 -- so the first pass was right about the argmax and wrong only to be uncertain.
+# The non-_v2 directory is superseded and must NOT be loaded alongside this one; it
+# would collide on ('isic', 5, 'mlp_block5_ft', 0). RESULTS_VIT.md §3.10d.
+ISIC_MLP = {0: "vit_isicmlppos0", 2: "vit_isicmlppos2", 5: "vit_isicmlppos5_v2",
             8: "vit_isicmlppos8", 11: "vit_isicmlppos11"}
 
 SHOT_DIRS = {1: "vit_shots1", 5: "vit_2b_eurosat", 20: "vit_shots20"}
@@ -201,9 +205,11 @@ def fig_depth_curves() -> None:
         ea, na, sa = mean_and_draws("eurosat", an)
         em, nm, sm = mean_and_draws("eurosat", f"mlp_block{i}_ft")
         ia, ni, si = mean_and_draws("isic", an)
+        im, nim, sim = mean_and_draws("isic", f"mlp_block{i}_ft")
         missing = [lbl for lbl, v in (("eurosat/" + an, ea),
                                       (f"eurosat/mlp_block{i}_ft", em),
-                                      ("isic/" + an, ia)) if v is None]
+                                      ("isic/" + an, ia),
+                                      (f"isic/mlp_block{i}_ft", im)) if v is None]
         if missing:
             raise SystemExit(
                 f"depth {i}: no episodes found for {', '.join(missing)}.\n"
@@ -213,13 +219,15 @@ def fig_depth_curves() -> None:
                 f"against what is actually on disk."
             )
         rows.append(f"{i} {ea:.2f} {sa or 0:.2f} {em:.2f} {sm or 0:.2f} "
-                    f"{ia:.2f} {si or 0:.2f}")
-        notes.append((i, na, nm, ni))
+                    f"{ia:.2f} {si or 0:.2f} {im:.2f} {sim or 0:.2f}")
+        notes.append((i, na, nm, ni, nim))
     write("depth_curves.dat",
-          "depth euro_attn euro_attn_sd euro_mlp euro_mlp_sd isic_attn isic_attn_sd",
+          "depth euro_attn euro_attn_sd euro_mlp euro_mlp_sd isic_attn isic_attn_sd "
+          "isic_mlp isic_mlp_sd",
           rows)
-    for i, na, nm, ni in notes:
-        print(f"    depth {i:2d}: draws euro_attn={na} euro_mlp={nm} isic_attn={ni}")
+    for i, na, nm, ni, nim in notes:
+        print(f"    depth {i:2d}: draws euro_attn={na} euro_mlp={nm} "
+              f"isic_attn={ni} isic_mlp={nim}")
 
 
 def fig_params_vs_acc() -> None:
@@ -381,13 +389,28 @@ def key_numbers() -> None:
         ("eurosat", "b8_vs_b5", "attn_block8_ft", "attn_block5_ft"),
         ("eurosat", "b2_vs_b0", "attn_block2_ft", "attn_block0_ft"),
         ("eurosat", "b5mlp_vs_b5attn", "mlp_block5_ft", "attn_block5_ft"),
-        # ISIC MLP: does the mirror hold in a second parameter type? Block 5 is
-        # omitted deliberately -- it is at a top grid edge and is a bound, not a
-        # measurement, until the _v2 run exists (§3.10).
+        # ISIC MLP: does the mirror hold in a second parameter type? It does -- all
+        # five links below are three-draw now, and the four large ones survived the
+        # extra draws with tighter intervals. The one that did NOT survive is
+        # b0mlp_vs_b5mlp, which went +0.95 (one draw) -> -0.08 (three) and is
+        # unsettled either way: the shallow region is a FLAT PLATEAU, so the claim
+        # the curve supports is its shape, not its argmax. See RESULTS_VIT.md §3.10e.
         ("isic", "b2mlp_vs_b11mlp", "mlp_block2_ft", "mlp_block11_ft"),
         ("isic", "b2mlp_vs_b8mlp", "mlp_block2_ft", "mlp_block8_ft"),
         ("isic", "b8mlp_vs_b11mlp", "mlp_block8_ft", "mlp_block11_ft"),
         ("isic", "b0mlp_vs_b11mlp", "mlp_block0_ft", "mlp_block11_ft"),
+        ("isic", "b5mlp_vs_b11mlp", "mlp_block5_ft", "mlp_block11_ft"),
+        ("isic", "b0mlp_vs_b5mlp", "mlp_block0_ft", "mlp_block5_ft"),
+        # The EuroSAT counterparts of the ISIC MLP links, so the mirror table can be
+        # read down a column in BOTH parameter types rather than only in attention.
+        # Same depths, same type, same selector, same protocol; only the dataset
+        # differs, which is the whole content of the mirror claim.
+        ("eurosat", "b2mlp_vs_b11mlp", "mlp_block2_ft", "mlp_block11_ft"),
+        ("eurosat", "b2mlp_vs_b8mlp", "mlp_block2_ft", "mlp_block8_ft"),
+        ("eurosat", "b8mlp_vs_b11mlp", "mlp_block8_ft", "mlp_block11_ft"),
+        ("eurosat", "b0mlp_vs_b11mlp", "mlp_block0_ft", "mlp_block11_ft"),
+        ("eurosat", "b5mlp_vs_b11mlp", "mlp_block5_ft", "mlp_block11_ft"),
+        ("eurosat", "b0mlp_vs_b5mlp", "mlp_block0_ft", "mlp_block5_ft"),
     ]
     rows = []
     for ds, name, a, b in comps:

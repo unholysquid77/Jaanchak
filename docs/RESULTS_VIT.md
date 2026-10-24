@@ -2058,6 +2058,120 @@ comparable (§2 fact 6 plus the episode-count difference), so no comparison is
 computed until all five cells are measured, block 5's grid is extended, and the
 load-bearing links have three draws.
 
+### 3.10d Block 5's top edge is closed: 3e-3 was the genuine optimum
+
+`results/vit_isicmlppos5_v2` (2026-10-21 16:25 box). §3.10 flagged block 5 as a
+**bound rather than a measurement**: its first-pass learning-rate grid put the
+argmax at 3e-3, the last point, so a better rate might have existed beyond it.
+The extension added 1e-2 and 3e-2 and re-measured.
+
+`results/vit_edges_isicmlppos5_v2.json` is the empty list — **no edge remains**.
+1e-2 collapses to 38.00, well below 3e-3, so the first pass had the right argmax
+and was wrong only to be uncertain about it. (Note the file's shape: it is a bare
+JSON array, not an object with an `edges` key.)
+
+**The two block-5 measurements are a reproduction datum, not a correction.** Both
+passes selected 3e-3, so `vit_isicmlppos5` (50.08) and `vit_isicmlppos5_v2`
+(49.91) are 100 episodes each at a byte-identical configuration. They differ by
+**0.17** — comfortably inside the ~0.6 floor of §3.7e, and a tighter agreement
+than most of the repeats in that section. So the extension did not change block
+5's accuracy; it changed what we are entitled to say about it, from a lower bound
+to a measurement. `_v2` supersedes only because it is the pass whose grid has no
+edge, not because 50.08 was wrong.
+
+**Supersession hazard.** `results/vit_isicmlppos5` still exists and holds the
+first-pass measurement for the same cell. Loading both directories collides on
+`('isic', 5, 'mlp_block5_ft', 0)` and trips `_load_dir`'s duplicate check in
+`paper/make_figures.py`. The `ISIC_MLP` map there points at `_v2` and the
+non-`_v2` directory must never be added beside it. This is the third `_v2`
+supersession in the ViT arm (EuroSAT attention block 8, EuroSAT MLP block 5, ISIC
+MLP block 5) and the duplicate check is what makes the pattern safe.
+
+**The edge gate is answerable before any accuracy is**, which is why it is worth
+running: the edge report is written by the sweep's *merge* step, which runs before
+measurement. A grid edge flatters the finding in whichever direction it points,
+so closing it is not optional for a cell the paper quotes.
+
+### 3.10e Three draws: the big gaps hold, the plateau's internal ordering flips
+
+`results/vit_isicmlpposcurve_seeds` completed 2026-10-21 18:40 box: seeds 1 and 2
+at all five depths, no re-tuning (seed 0's selected learning rate is reused at
+every cell, block 5's taken from `_v2`). With seed 0 that is three draws, and the
+per-cell means are now **per-seed differences with t(2)=4.303**, not per-episode
+paired within one draw.
+
+| ISIC, MLP | block 0 | block 2 | block 5 | block 8 | block 11 |
+|---|---|---|---|---|---|
+| three-draw mean | 49.13 | **49.74** | 49.21 | 46.92 | 42.78 |
+| s.d. across draws | 1.53 | 0.91 | 0.69 | 0.76 | 0.58 |
+| seed 0 alone | 50.85 | 50.63 | 49.91 | 47.69 | 43.44 |
+
+Seed 0 was the high draw at every depth — the curve shifted down ~1 point
+bodily, which is what a draw difference looks like when it is not interacting
+with the thing being measured.
+
+| comparison | 1 draw | 3 draws | verdict |
+|---|---|---|---|
+| block 0 − block 11 | +7.41 ± 1.48 | **+6.35 ± 2.37** | settled both |
+| block 2 − block 11 | +7.19 ± 1.63 | **+6.96 ± 1.16** | settled both |
+| block 5 − block 11 | +6.47 ± 1.45 | **+6.43 ± 0.63** | settled both |
+| block 8 − block 11 | +4.25 ± 1.27 | **+4.15 ± 0.76** | settled both |
+| block 2 − block 8 | +2.93 ± 1.48 | **+2.82 ± 0.41** | settled both |
+| block 0 − block 5 | +0.95 ± 1.46 | **−0.08 ± 2.21** | unsettled both, **sign flipped** |
+
+**The four large links survived and tightened.** Three of the five intervals got
+*narrower* going from 100 paired episodes to 3 draws, which is the pattern to
+expect when the between-draw variance is small relative to the effect: the
+per-episode interval was measuring episode sampling, the per-seed one measures
+the thing that actually limits a claim. Block 0 − block 11 is the exception, and
+its interval nearly doubled (1.48 → 2.37) because block 0 is the noisiest cell
+(s.d. 1.53, more than twice block 11's).
+
+**The one that moved is the one that was predicted to move.** §3.10c said the
+readable claim was the *shape* — a flat shallow plateau falling to the deep end —
+and not the argmax, because 50.85 / 50.63 / 49.91 sit inside the noise floor's
+neighbourhood. Three draws put block 0 − block 5 at −0.08 ± 2.21: not merely
+unsettled but with its point estimate on the other side of zero, and the argmax
+is now block 2 rather than block 0. It is not an eighth entry in the
+promoted/demoted tally — its verdict is unsettled before and after — but it is
+the first case in this record where the *sign* of a marginal link reversed under
+additional draws rather than its verdict. It cost nothing,
+because no claim was ever built on it. Had §3.10c written "block 0 is the best
+depth on ISIC in the MLP", three draws would have retracted it.
+
+**What the paper now claims.** The mirror table in `paper/arc.tex` gained a
+second panel: three MLP links (block 0 / block 2 − block 11, block 2 − block 8)
+with opposite settled signs on the two datasets, alongside the three attention
+links. The EuroSAT MLP counterparts were computed in the same pass for symmetry
+(`eurosat b*mlp_vs_b*mlp` in `key_numbers.dat`).
+
+**Two MLP links do NOT mirror, and the paper says so.**
+
+| MLP link | ISIC | EuroSAT |
+|---|---|---|
+| block 5 − block 11 | +6.43 ± 0.63 | +1.45 ± 1.93 (unsettled) |
+| block 8 − block 11 | +4.15 ± 0.76 | +3.80 ± 0.97 |
+
+Both are same-sign. The reason is structural rather than awkward: block 11 is
+*past* the block-8 peak on EuroSAT, so a comparison from block 5 or block 8 into
+block 11 is between two points on the descending side of a maximum and is not a
+shallow-versus-deep contrast at all. The last-block fall-off is the one feature
+the EuroSAT and ISIC curves share. The criterion that excludes those rows — both
+depths must lie on the same side of the EuroSAT peak as the labels claim — is
+defensible but was **not fixed before the numbers were seen**, and the paper
+states that in the text rather than presenting it as a pre-registration.
+
+**One correction to §3.10c carried into the paper.** §3.10c compared ISIC's
+*attention* span (3.7) against EuroSAT's (8.9) and the paper read that as "ISIC's
+depth span is less than half EuroSAT's". In the MLP the spans are 7.0 (ISIC) and
+8.5 (EuroSAT) — the same size. The span gap is a fact about attention on ISIC,
+not about ISIC, and the paper's sentence now says so.
+
+**Also corrected:** the abstract and contribution list said "four
+shallow-versus-deep comparisons take opposite signs". The mirror table has only
+ever carried three. It now carries six, so the count is right for the first time
+by being updated rather than by being checked.
+
 ## 4.2 Two fields named `inner_lr`, and which one is real
 
 Recorded 2026-10-21 04:30 box, after it cost ten minutes and a false alarm.

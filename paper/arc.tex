@@ -42,9 +42,9 @@ block ($2.75\%$ of the backbone) beats full fine-tuning of all $85.8$M parameter
 \dd{5.72}{0.26}. The effect is not a property of attention --- the MLP depth curve has
 the same shape, a comparable span and a higher peak --- and not a property of the
 backbone alone: on ISIC, where the shift is larger, the curve is \emph{mirrored},
-shallow blocks win, and no single block beats full fine-tuning at all. Four
-shallow-versus-deep comparisons take opposite signs on the two datasets, each settled
-across three episode draws.
+shallow blocks win, and no single block beats full fine-tuning at all. Six
+shallow-versus-deep comparisons, in both parameter types, take opposite signs on the
+two datasets, each settled across three episode draws.
 
 We then ask why full fine-tuning loses, and test three pre-registered predictions of an
 over-optimisation account. Two hold: reducing inner steps helps the large parameter
@@ -88,9 +88,9 @@ Our contributions:
   \item \textbf{It is depth, not attention.} The same sweep in the block MLP reproduces
     the shape, the span and the interior peak (\S\ref{sec:mlp}), against a
     pre-registered prediction that it would not.
-  \item \textbf{The curve mirrors with shift magnitude.} On ISIC the ordering reverses;
-    four shallow-versus-deep comparisons have opposite signs on the two datasets
-    (\S\ref{sec:mirror}).
+  \item \textbf{The curve mirrors with shift magnitude.} On ISIC the ordering reverses
+    in \emph{both} parameter types; six shallow-versus-deep comparisons have opposite
+    signs on the two datasets (\S\ref{sec:mirror}).
   \item \textbf{A mechanism tested three ways, two confirmed and one failed.} Full
     fine-tuning over-optimises where there is little to gain; fewer inner steps and
     larger support sets both move it as predicted, while weight decay --- the
@@ -263,14 +263,20 @@ the deep end is worst (Figure~\ref{fig:mirror}).
 \begin{tikzpicture}
 \begin{axis}[width=0.78\textwidth, height=5.4cm,
   xlabel={transformer block adapted}, ylabel={5-shot accuracy (\%), ISIC},
-  xtick={0,2,5,8,11}, grid=major, grid style={gray!20}]
+  xtick={0,2,5,8,11}, grid=major, grid style={gray!20},
+  legend pos=south west, legend cell align=left]
 \addplot[attncol, mark=*, thick, error bars/.cd, y dir=both, y explicit]
   table[x=depth, y=isic_attn, y error=isic_attn_sd] {figdata/depth_curves.dat};
+\addlegendentry{attention ($2.75\%$)}
+\addplot[mlpcol, mark=square*, thick, dashed, error bars/.cd, y dir=both, y explicit]
+  table[x=depth, y=isic_mlp, y error=isic_mlp_sd] {figdata/depth_curves.dat};
+\addlegendentry{block MLP ($5.50\%$)}
 \end{axis}
 \end{tikzpicture}
-\caption{ISIC depth curve, attention, three draws. A flat plateau over blocks $0$--$5$
-(no internal comparison settled, and the argmax moves between draws) then a step down
-to the deep end. Compare Figure~\ref{fig:depth}: the ordering is reversed.}
+\caption{ISIC depth curves for both parameter types, three draws, error bars
+$\pm 1$ s.d.\ across draws. Each is a flat plateau over blocks $0$--$5$ (no internal
+comparison settled, and the argmax moves between draws) then a step down to the deep
+end. Compare Figure~\ref{fig:depth}: the ordering is reversed in both types.}
 \label{fig:mirror}
 \end{figure}
 
@@ -280,21 +286,53 @@ to the deep end. Compare Figure~\ref{fig:depth}: the ordering is reversed.}
 \toprule
 shallow $-$ deep & ISIC & EuroSAT \\
 \midrule
+\multicolumn{3}{l}{\emph{attention} ($2.75\%$)} \\
 block 2 $-$ block 11 & \dd{3.47}{1.14} & \dd{-7.31}{1.13} \\
 block 5 $-$ block 11 & \dd{3.28}{2.07} & \dd{-4.17}{1.31} \\
 block 5 $-$ block 8  & \dd{1.93}{0.23} & \dd{-5.71}{1.38} \\
+\addlinespace
+\multicolumn{3}{l}{\emph{block MLP} ($5.50\%$)} \\
+block 0 $-$ block 11 & \dd{6.35}{2.37} & \dd{-4.72}{2.06} \\
+block 2 $-$ block 11 & \dd{6.96}{1.16} & \dd{-4.32}{0.38} \\
+block 2 $-$ block 8  & \dd{2.82}{0.41} & \dd{-8.11}{0.84} \\
 \bottomrule
 \end{tabular}
-\caption{Every shallow-versus-deep comparison has the opposite sign on the two
-datasets, all settled, three draws per side, same selector and protocol throughout.}
+\caption{Six shallow-versus-deep comparisons, in two parameter types, each with the
+opposite sign on the two datasets and each settled on both sides; three draws per cell,
+same selector and protocol throughout. The sign reversal is a property of the shift,
+not of the parameter type that carries it.}
 \label{tab:mirror}
 \end{table}
 
-Two differences from EuroSAT are worth stating. ISIC's depth span is $3.7$ points
+\paragraph{The reversal survives changing the parameter type.} The sweep was then
+repeated in the block MLP on ISIC --- a second type, twice the size, the same five
+depths, the same per-cell learning-rate grid. The ordering reverses there too
+(Figure~\ref{fig:mirror}), and the three MLP rows of Table~\ref{tab:mirror} are
+settled on both sides. This matters because it separates two readings of
+\S\ref{sec:mlp} and \S\ref{sec:mirror} that the EuroSAT data alone cannot: the
+reversal could have been something attention does under large shift, in which case it
+would not appear in the MLP. It appears in the MLP, at a larger margin than in
+attention ($6.96$ points from block 2 to block 11, against $3.47$), so the shift, not
+the parameter type, is what sets the sign.
+
+One link does \emph{not} reverse, and we state it rather than drop it. Block 5 $-$
+block 11 in the MLP is $+6.43 \pm 0.63$ on ISIC and $+1.45 \pm 1.93$ on EuroSAT ---
+same sign, and unsettled on the EuroSAT side. It is excluded from
+Table~\ref{tab:mirror}, and the criterion is one we can defend but did not fix in
+advance of seeing the number: a row belongs there only if both of its depths lie on
+the same side of the EuroSAT peak as the labels ``shallow'' and ``deep'' claim. Block 11 is \emph{past} the
+block-8 peak on EuroSAT, so block 5 $-$ block 11 compares two points on the far side
+of a maximum and is not a shallow-versus-deep contrast at all. The same is true of
+block 8 $-$ block 11, which is positive on both datasets ($+4.15 \pm 0.76$ on ISIC,
+\dd{3.80}{0.97} on EuroSAT) --- the fall-off at the last block is the one feature the
+two curves share.
+
+Two differences from EuroSAT are worth stating. ISIC's attention span is $3.7$ points
 against EuroSAT's $8.9$ --- real but less than half the size --- and \emph{no} single
 block beats full fine-tuning there (the best loses by \dd{3.72}{1.03}). So the
 \emph{depth effect} is a property of the backbone, while the \emph{single-block win} is
-specific to mild shift.
+specific to mild shift. The span gap is a fact about attention rather than about ISIC:
+in the MLP the two datasets span $7.0$ and $8.5$ points, which is the same size.
 
 \paragraph{Interpretation.} We read the depth curve as locating where the pretrained
 representation stops transferring. Dermoscopy diverges from ImageNet-21k early, so ISIC
@@ -476,8 +514,10 @@ literature implies'' is our own ResNet replication, not their numbers.
   \item \textbf{Two datasets.} Two points cannot establish a monotone relationship
     between shift magnitude and anything. Headroom is our proxy for shift magnitude and
     is a proxy, not a measurement.
-  \item \textbf{The type\,$\times$\,depth interaction is one dataset} --- it has not
-    been measured on ISIC.
+  \item \textbf{The depth\,$\times$\,type\,$\times$\,dataset cell is full, but thinly.}
+    Both parameter types are now measured at all five depths on both datasets, so the
+    reversal is no longer a single-type finding. It is still two types out of the five
+    the type axis contains, and two datasets.
   \item \textbf{Runs are not reproducible to better than $\approx 0.6$ points}, and we
     have not enabled deterministic kernels. Every individual accuracy carries that noise
     on top of the episode-sample spread.
@@ -508,8 +548,9 @@ badly placed block of the same size and type does not beat it at all. The win be
 placement, not to small interventions as such.
 
 Two features of the result bound it, and we think both are more useful than a larger
-headline would have been. The depth curve \emph{reverses} between our two datasets, so
-the right depth is a property of the domain shift rather than of the architecture --- we
+headline would have been. The depth curve \emph{reverses} between our two datasets, in
+both parameter types we measured, so the right depth is a property of the domain shift
+rather than of the architecture or of the parameters that carry the adaptation --- we
 read the curve as locating where the pretrained representation stops transferring, and
 on the stronger-shift dataset no single block suffices. And the advantage occupies a
 window in support size: it needs data too scarce to constrain full fine-tuning and
@@ -521,7 +562,7 @@ What we cannot yet explain is why the obvious repair for full fine-tuning does n
 Weight decay degrades it rather than rescuing it, which is either a fact about the
 account or a fact about decaying toward the origin from a pretrained initialisation. The
 experiment that distinguishes those is the natural next one, along with a second
-architecture family and a third dataset to turn the mirror from an instance into a
+architecture family and a third dataset to turn the mirror from two instances into a
 trend.
 
 \section*{Reproducibility}
