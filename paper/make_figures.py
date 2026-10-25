@@ -141,7 +141,7 @@ def _episodes() -> dict:
               + ["vit_2b_eurosat", "vit_2b_isic", "vit_seeds_eurosat", "vit_seeds_isic"]
               + [d for d in list(SHOT_DIRS.values()) + list(SHOT_REF_DIRS.values())
                  if d != "vit_2b_eurosat"]
-              + list(ISIC_MLP.values())):
+              + list(ISIC_MLP.values()) + ["vit_cap6"]):
         if os.path.isdir(rdir(d)):
             _load_dir(d, acc)
     return acc
@@ -411,6 +411,13 @@ def key_numbers() -> None:
         ("eurosat", "b0mlp_vs_b11mlp", "mlp_block0_ft", "mlp_block11_ft"),
         ("eurosat", "b5mlp_vs_b11mlp", "mlp_block5_ft", "mlp_block11_ft"),
         ("eurosat", "b0mlp_vs_b5mlp", "mlp_block0_ft", "mlp_block5_ft"),
+        # Quoted in the revamped manuscript and verified against results/ on
+        # 10-25, but previously absent here -- so they were transcribed rather
+        # than generated, and one of them (attnall_vs_full) had drifted to
+        # +/-0.65 against a true +/-0.64. Generating them closes that gap.
+        ("eurosat", "attnall_vs_full", "attn_only_ft", "full_ft"),
+        ("isic", "full_vs_attnall", "full_ft", "attn_only_ft"),
+        ("eurosat", "b8attn_vs_last6", "attn_block8_ft", "attn_last6_ft"),
     ]
     rows = []
     for ds, name, a, b in comps:
