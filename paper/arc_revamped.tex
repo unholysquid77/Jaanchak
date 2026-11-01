@@ -20,6 +20,9 @@
 \usepackage{subcaption}
 \usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!55!black]{hyperref}
 \usepackage[nameinlink,noabbrev]{cleveref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\captionsetup[algorithm]{font=small}
 \pgfplotsset{compat=1.18}
 \setstretch{1.02}
 \setlength{\parindent}{1.2em}
@@ -53,9 +56,30 @@
 \maketitle
 
 \begin{abstract}
-Parameter-efficient fine-tuning (PEFT) is commonly organized around the parameter family being updated: attention projections, feed-forward layers, normalization parameters, or a restricted update such as a low-rank transformation. This paper studies a complementary design axis: the depth at which an otherwise fixed adaptation is applied. We evaluate a supervised ImageNet-21k-pretrained ViT-B/16 on 5-way few-shot episodes drawn from EuroSAT and ISIC 2018. At five sampled blocks, adapting attention in one block changes EuroSAT validation accuracy from 78.76\% at block 0 to 87.49\% at block 8, an 8.85-point span across three episode draws while the adapted parameter count remains approximately 2.75\% of the backbone. An analogous MLP-only sweep has a comparable 8.52-point span and peaks at block 8, indicating that the effect is not unique to attention. The depth profile differs on ISIC, in both measured families: performance is highest across the shallow-to-middle blocks and declines at deeper positions, and no single tested block exceeds full fine-tuning on this dataset. Six shallow-versus-deep comparisons, three in attention and three in the MLP, take the opposite sign on the two datasets, each settled across three episode draws. Thus, the results support depth as a consequential and dataset-dependent adaptation variable, not a universal rule that a particular block or parameter family is always best.
+Parameter-efficient fine-tuning is usually organised around \emph{which} family of
+parameters is updated: attention projections, feed-forward layers, normalisation
+parameters, or a low-rank factor. This paper studies a complementary axis,
+\emph{where} an otherwise fixed adaptation is applied. Using a supervised
+ImageNet-21k ViT-B/16 on 5-way 5-shot episodes from EuroSAT and ISIC 2018, we adapt
+one transformer block at a time, holding the parameter family and count
+fixed so the remaining contrast is positional.
 
-A preceding ResNet-50 investigation tested an adaptive controller based on layer-wise utility and representational drift. The controller did not improve tuned baselines, motivating a controlled ViT depth study. Follow-up experiments examine inner-loop length, support-set size, weight decay, and activation-space displacement. In a matched EuroSAT follow-up using one episode draw at each of $k=1,5,20$, the gain of full fine-tuning over frozen ProtoNet increases from $-1.20$ percentage points at one shot to $+3.97$ at five shots and $+7.41$ at twenty shots; the main five-shot benchmark separately averages three draws. Because this gain-over-frozen statistic was formulated after the lower-shot outcomes were inspected, the twenty-shot row is a prospective check of the revised statistic rather than a preregistered test. The pattern is consistent with a capacity-versus-data account but does not establish it. A direct weight-decay intervention fails to rescue full fine-tuning. All main ViT measurements are from validation splits, with three episode-sampling draws for headline depth curves. No held-out test results are reported. The paper's claims are consequently limited to the evaluated backbones, datasets, depths, and protocol.
+On EuroSAT, attention-only adaptation of a single block spans $8.85$ points across
+five sampled depths, from $78.76\%$ at block 0 to $87.49\%$ at block 8, while updating
+$2.75\%$ of the backbone; an MLP-only sweep spans $8.52$ points and peaks at the same
+block. One well-placed block exceeds full fine-tuning of all $85.8$M parameters by
+$4.43\pm0.90$ points; a differently placed block of identical size and type does not
+exceed it at all. On ISIC the profile reverses: shallow and middle blocks are
+strongest, deep blocks weakest, and no single tested block beats full fine-tuning.
+Six shallow-versus-deep comparisons, three per family, take opposite signs on
+the two datasets, each settled across three episode draws.
+
+We test three predictions of a capacity-versus-data account. Shortening the inner
+loop and enlarging the support set move full fine-tuning as predicted; weight decay
+degrades it monotonically instead of repairing it, to $-5.12$ points at
+$\lambda=10^{-1}$. We report that failure rather than reinterpret it. Adaptation
+depth is therefore a consequential, dataset-dependent design variable whose
+mechanism is not yet established. All results are validation-only.
 \end{abstract}
 
 \noindent\textbf{Keywords:} few-shot learning; cross-domain adaptation; Vision Transformer; parameter-efficient fine-tuning; layer selection; overfitting; transfer learning
@@ -116,7 +140,7 @@ These papers motivate, but do not settle, the mechanism studied here. The inner-
 
 \subsection{Synthesis and research gap}
 
-The literature supports three premises: (i) cross-domain shift substantially changes the difficulty of few-shot transfer; (ii) PEFT and partial fine-tuning can be competitive with full fine-tuning, especially when support data is limited; and (iii) different layers can have different adaptation value. What remains less directly isolated in the cited body of work is the interaction between depth and the parameter family under a fixed episodic setup. A parameter-family comparison that updates all twelve attention blocks is an average over depth. It can hide the possibility that a single block performs much better than that whole-network average.
+\Cref{tab:litreview} places each cited work against the present study and states the boundary that prevents a numerical comparison. The literature supports three premises: (i) cross-domain shift substantially changes the difficulty of few-shot transfer; (ii) PEFT and partial fine-tuning can be competitive with full fine-tuning, especially when support data is limited; and (iii) different layers can have different adaptation value. What remains less directly isolated in the cited body of work is the interaction between depth and the parameter family under a fixed episodic setup. A parameter-family comparison that updates all twelve attention blocks is an average over depth. It can hide the possibility that a single block performs much better than that whole-network average.
 
 Our contribution is therefore not a claim to invent layer selection, PEFT, or few-shot overfitting. It is a controlled measurement of depth as an independent experimental axis in one supervised ViT-B/16 setup, across two target datasets, with follow-up tests that clarify the limits of the resulting pattern. Because only two datasets and five depths are studied and no common-protocol reruns of external PEFT baselines are included, the result is an empirical case study rather than a universal ranking of adaptation methods.
 
@@ -162,7 +186,58 @@ where $U_\ell$ denotes a utility estimate, $D_\ell$ represents representational 
  h_\ell = (1-a_\ell)h_\ell^{\mathrm{ref}}+a_\ell h_\ell^{\mathrm{adapt}},
  \label{eq:arcblend}
 \end{equation}
-where $h_\ell^{\mathrm{ref}}$ and $h_\ell^{\mathrm{adapt}}$ are activations from a frozen reference backbone and its episode-adapted counterpart. The initial controller work implemented and evaluated only the utility/drift version of this idea; the topological, stability, novelty, and FBSDE extensions were not part of the final empirical evaluation because the simpler gate did not establish a reliable benefit.
+where $h_\ell^{\mathrm{ref}}$ and $h_\ell^{\mathrm{adapt}}$ are activations from a frozen reference backbone and its episode-adapted counterpart. \Cref{fig:resnetarch} shows the pilot backbone and the per-unit gate it was built around. The initial controller work implemented and evaluated only the utility/drift version of this idea; the topological, stability, novelty, and FBSDE extensions were not part of the final empirical evaluation because the simpler gate did not establish a reliable benefit.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  stage/.style={draw,rounded corners=2pt,align=center,minimum width=1.55cm,minimum height=1.0cm,font=\scriptsize},
+  tiny/.style={font=\scriptsize,midgray},
+  arr/.style={-{Latex[length=1.8mm]},thick}
+]
+\node[stage,fill=lightblue] (stem) {stem\\\scriptsize $7{\times}7$, pool};
+\node[stage,fill=lightblue,right=0.45cm of stem] (s1) {stage 1\\\scriptsize $3\times$ btl};
+\node[stage,fill=lightblue,right=0.45cm of s1] (s2) {stage 2\\\scriptsize $4\times$ btl};
+\node[stage,fill=lightorange,right=0.45cm of s2,draw=mlpcol,very thick] (s3) {stage 3\\\scriptsize $6\times$ btl};
+\node[stage,fill=lightblue,right=0.45cm of s3] (s4) {stage 4\\\scriptsize $3\times$ btl};
+\node[stage,fill=lightgreen,right=0.45cm of s4] (head) {cosine\\proto head};
+\foreach \a/\b in {stem/s1,s1/s2,s2/s3,s3/s4,s4/head}{\draw[arr] (\a)--(\b);}
+\node[tiny,below=0.08cm of stem] {1 unit};
+\node[tiny,below=0.08cm of s1] {3 units};
+\node[tiny,below=0.08cm of s2] {4 units};
+\node[tiny,below=0.08cm of s3] {6 units};
+\node[tiny,below=0.08cm of s4] {3 units};
+
+\begin{scope}[shift={(0,-2.75cm)}]
+  \node[stage,fill=white,draw=midgray] (hin) {$h_{\ell-1}$};
+  \node[stage,fill=lightblue,right=0.85cm of hin,yshift=0.80cm] (froz) {frozen copy\\\scriptsize $f^{\mathrm{ref}}_\ell$};
+  \node[stage,fill=lightorange,right=0.85cm of hin,yshift=-0.80cm] (adap) {adapted copy\\\scriptsize $f^{\mathrm{adapt}}_\ell$};
+  \node[draw,circle,inner sep=1.2pt,right=0.85cm of hin,xshift=2.6cm,font=\scriptsize] (mix) {$\oplus$};
+  \node[stage,fill=white,draw=midgray,right=0.7cm of mix] (hout) {$h_\ell$};
+  \draw[arr] (hin.east)--(froz.west); \draw[arr] (hin.east)--(adap.west);
+  \draw[arr] (froz.east)-- node[tiny,above right=-1pt]{$1-a_\ell$} (mix);
+  \draw[arr] (adap.east)-- node[tiny,below right=-1pt]{$a_\ell$} (mix);
+  \draw[arr] (mix)--(hout);
+  \node[tiny,below=0.5cm of mix,align=center,text width=5.6cm]
+    {Gate intensity $a_\ell\in[0,1]$ set from the unit's utility and drift
+     estimates. At $a_\ell{=}0$ the unit is exactly the frozen reference; at
+     $a_\ell{=}1$ it is fully adapted.};
+\end{scope}
+\end{tikzpicture}
+\caption{The ResNet-50 pilot. \textbf{Top:} the backbone is divided into
+seventeen controllable units, the stem plus each of the sixteen bottleneck
+blocks, which is the granularity the ARC controller operated on. One stage is
+outlined to indicate where a selected unit sits; the controller assigned an
+intensity to every unit rather than choosing one. Stage widths
+and spatial resolutions differ between stages, which is precisely why this
+architecture cannot isolate depth as cleanly as a ViT whose blocks are
+structurally identical. \textbf{Bottom:} the per-unit gate. Each unit runs a
+frozen reference copy and an episode-adapted copy, and their outputs are
+interpolated by the learned intensity $a_\ell$. The measured gate stayed high
+enough that $84$--$98\%$ of parameters were still modified, so the intended
+sparse adaptation was never realised.}
+\label{fig:resnetarch}
+\end{figure}
 
 The ResNet pilot produced three relevant observations. First, the tuned adaptive gate did not improve over the fixed adaptation baselines. Second, its sigmoid gate often remained high, so it still modified most of the backbone and did not realize its intended sparse-adaptation behaviour. Third, the tested signals did not reliably rank units according to their realised adaptation benefit. These findings do not show that all representation-aware controllers are ineffective. They show that this particular signal-and-gate implementation did not supply evidence to justify the more expensive extensions.
 
@@ -170,7 +245,7 @@ The subsequent ViT experiments remove the controller and directly intervene on a
 
 \subsection{Tasks and datasets}
 
-We study EuroSAT and ISIC 2018 as target domains. EuroSAT contains 27,000 RGB satellite-image tiles across ten land-use and land-cover categories \cite{helber2019}. ISIC 2018 Task 3 uses the HAM10000 dermoscopic image collection, containing 10,015 images across seven diagnostic categories \cite{tschandl2018,codella2019}. The two datasets differ in visual content and acquisition process. We use them to demonstrate that the depth profile is not identical across target datasets; we do not treat two datasets as a sufficient sample for estimating a general relationship between a numerical measure of domain shift and optimal depth.
+We study EuroSAT and ISIC 2018 as target domains; \cref{tab:datasets} summarises the two partitions. EuroSAT contains 27,000 RGB satellite-image tiles across ten land-use and land-cover categories \cite{helber2019}. ISIC 2018 Task 3 uses the HAM10000 dermoscopic image collection, containing 10,015 images across seven diagnostic categories \cite{tschandl2018,codella2019}. The two datasets differ in visual content and acquisition process. We use them to demonstrate that the depth profile is not identical across target datasets; we do not treat two datasets as a sufficient sample for estimating a general relationship between a numerical measure of domain shift and optimal depth.
 
 The fixed split seed is 0. EuroSAT is split into train/validation/test fractions of 0.2/0.1/0.7, containing 5,400, 2,700, and 18,900 images respectively. ISIC uses fractions of 0.1/0.4/0.5, containing 1,000, 4,013, and 5,002 images respectively. The fractions differ because the ISIC class distribution is substantially imbalanced: a split with a smaller validation allocation leaves too few samples in the rarest categories to form the intended episodic tasks. We chose the fractions after checking per-class episode feasibility rather than forcing identical percentages across datasets.
 
@@ -203,7 +278,7 @@ and query predictions are based on cosine similarity between the query embedding
 
 \subsection{Backbone and parameter groups}
 
-The primary backbone is a ViT-B/16 model with the public supervised ImageNet-21k AugReg initialization distributed as \method{vit\_base\_patch16\_224.augreg\_in21k} \cite{vit2021,steiner2022}. It has twelve transformer blocks and 85,798,656 parameters in the parameter partition used by the experiments. The architecture makes depth a relatively clean factor: each block contains an attention sublayer and an MLP sublayer of the same dimensions. The selected block is varied while the family and nominal parameter count are fixed.
+\Cref{fig:vitintervention} shows the intervention schematically and \cref{tab:vitgroups} lists the resulting groups. The primary backbone is a ViT-B/16 model with the public supervised ImageNet-21k AugReg initialization distributed as \method{vit\_base\_patch16\_224.augreg\_in21k} \cite{vit2021,steiner2022}. It has twelve transformer blocks and 85,798,656 parameters in the parameter partition used by the experiments. The architecture makes depth a relatively clean factor: each block contains an attention sublayer and an MLP sublayer of the same dimensions. The selected block is varied while the family and nominal parameter count are fixed.
 
 \begin{figure}[t]
 \centering
@@ -274,11 +349,49 @@ This procedure does not eliminate all selection bias: choosing the learning rate
 
 \subsection{Primary depth interventions}
 
-For a depth index $i$, let $\method{attn\_block}_i$ denote a model in which only the attention projections in ViT block $i$ are updated, and let $\method{mlp\_block}_i$ denote the corresponding MLP-only intervention. Each single-block model is compared to frozen ProtoNet and full fine-tuning. Because the parameter family and count are constant across $i$ within each sweep, the difference
+\begin{algorithm}[t]
+\caption{Episodic depth intervention. One evaluated configuration is the triple
+(parameter family $\mathcal{F}$, block index $i$, learning rate $\eta$). The
+backbone is restored from the pretrained snapshot before every episode, so no
+information crosses episode boundaries.}
+\label{alg:depth}
+\begin{algorithmic}[1]
+\Require pretrained backbone $\theta_0$; family $\mathcal{F}\in\{\textsc{attn},\textsc{mlp}\}$;
+block $i$; rate $\eta$; steps $T{=}20$; episodes $N{=}100$; draw seed $s$
+\Ensure mean query accuracy over the draw
+\State $\mathcal{S}\gets$ parameter indices of family $\mathcal{F}$ in block $i$
+\Comment{all other backbone weights stay frozen}
+\For{$n = 1$ \textbf{to} $N$}
+  \State $\theta \gets \theta_0$ \Comment{restore; episodes never share state}
+  \State $(S, Q) \gets \textsc{SampleEpisode}(\text{val split}, \text{seed}{=}h(s,n))$
+  \Comment{5-way, 5 support, 15 query per class}
+  \For{$t = 1$ \textbf{to} $T$}
+    \State $\mathbf{p}_c \gets \frac{1}{|S_c|}\sum_{x\in S_c} f_\theta(x)$ for each class $c$
+    \State $\mathcal{L} \gets \textsc{SupportLoss}\big(\{f_\theta(x)\}_{x\in S}, \{\mathbf{p}_c\}\big)$
+    \State $\theta_{\mathcal{S}} \gets \textsc{Adam}(\theta_{\mathcal{S}}, \nabla_{\theta_{\mathcal{S}}}\mathcal{L}, \eta)$
+    \Comment{gradients restricted to $\mathcal{S}$}
+  \EndFor
+  \State $\mathbf{p}_c \gets \frac{1}{|S_c|}\sum_{x\in S_c} f_\theta(x)$
+  \Comment{prototypes recomputed after adaptation}
+  \State $a_n \gets \textsc{Accuracy}\big(\arg\max_c \cos(f_\theta(q), \mathbf{p}_c),\; y_Q\big)$
+\EndFor
+\State \Return $\frac{1}{N}\sum_n a_n$
+\end{algorithmic}
+\end{algorithm}
+
+
+\Cref{alg:depth} states the procedure evaluated for every configuration. For a depth index $i$, let $\method{attn\_block}_i$ denote a model in which only the attention projections in ViT block $i$ are updated, and let $\method{mlp\_block}_i$ denote the corresponding MLP-only intervention. Each single-block model is compared to frozen ProtoNet and full fine-tuning. Because the parameter family and count are constant across $i$ within each sweep, the difference
 \begin{equation}
  \Delta_{i,j}=\operatorname{Acc}(i)-\operatorname{Acc}(j)
 \end{equation}
 measures the outcome difference for moving the adaptation location between tested blocks, under the selected hyperparameters and episode distribution.
+
+Because $h(s,n)$ depends only on the draw seed and the episode index,
+every configuration compared within a draw sees \emph{identical} episodes. All
+reported differences are therefore paired at the episode level, which removes
+episode-difficulty variance from the comparison. The learning rate $\eta$ is the
+only quantity tuned per configuration, and it is tuned on validation; the test
+split is never read.
 
 The depth study addresses four descriptive questions:
 \begin{enumerate}
@@ -316,7 +429,7 @@ The ResNet-50 arm both motivated ARC and exposed why a more controlled depth stu
 
 \subsection{Tuned baselines on EuroSAT}
 
-The initial baseline evaluation compared frozen ProtoNet, last-layer tuning, BatchNorm-only tuning, stage-4 tuning, progressive unfreezing, and full fine-tuning. Each trainable baseline was tuned on validation. The 1-shot and 5-shot cells pooled three episode-sampling seeds; the 10-shot and 20-shot cells pooled two seeds and are shown only as context.
+\Cref{tab:resnetbaseline} reports the initial baseline evaluation, which compared frozen ProtoNet, last-layer tuning, BatchNorm-only tuning, stage-4 tuning, progressive unfreezing, and full fine-tuning. Each trainable baseline was tuned on validation. The 1-shot and 5-shot cells pooled three episode-sampling seeds; the 10-shot and 20-shot cells pooled two seeds and are shown only as context.
 
 \begin{table}[t]
 \centering
@@ -345,7 +458,7 @@ On ISIC, ResNet-50 full fine-tuning achieved 49.55\% at five shots, compared wit
 
 The first implemented ARC gate used utility $U_\ell$ and drift $D_\ell$ to set an adaptation intensity. Drift was computed from the difference between activations of the frozen reference and adapted network; the intended gate should have assigned lower adaptation intensity to units whose adaptation was less useful or excessively disruptive. The gate's coefficients were treated as validation-tuned hyperparameters rather than learned parameters, because a gate that only masks gradients does not receive a useful coefficient gradient through the masked-gradient path.
 
-Across EuroSAT and ISIC, the marginal effects of the tested utility and drift signals were neutral or negative. On EuroSAT, utility's marginal effect was approximately $-0.05$ points at one shot and $+0.04$ at five shots; drift was $-0.10$ and $-1.20$ points, respectively. On ISIC the corresponding effects were $-0.18$ and $-1.43$ for utility, and $-0.30$ and $-3.33$ for drift. The gate's average intensity remained high enough that approximately 84--98\% of parameters were still modified, so the implementation did not create a genuinely sparse update. Comparing the best configuration from a larger signal-enabled sweep with the best from a smaller signal-disabled sweep would favour the larger search space; the marginal effects above are more appropriate summaries.
+Across EuroSAT and ISIC, the marginal effects of the tested utility and drift signals were neutral or negative (\cref{tab:gate}). On EuroSAT, utility's marginal effect was approximately $-0.05$ points at one shot and $+0.04$ at five shots; drift was $-0.10$ and $-1.20$ points, respectively. On ISIC the corresponding effects were $-0.18$ and $-1.43$ for utility, and $-0.30$ and $-3.33$ for drift. The gate's average intensity remained high enough that approximately 84--98\% of parameters were still modified, so the implementation did not create a genuinely sparse update. Comparing the best configuration from a larger signal-enabled sweep with the best from a smaller signal-disabled sweep would favour the larger search space; the marginal effects above are more appropriate summaries.
 
 \begin{table}[t]
 \centering
@@ -407,12 +520,56 @@ On EuroSAT, attention-only tuning is the strongest replicated whole-family basel
 
 On ISIC, the ordering changes. Full fine-tuning averages 51.50\%, ahead of attention-only tuning at 49.29\% by a paired $2.20\pm0.30$ points. The LayerNorm-only result is 48.91\%. This is consistent with the premise that domain shift affects how much model capacity is useful, but it is not itself proof of a causal relationship with a measured shift magnitude. In particular, two datasets cannot establish a monotonic law relating shift magnitude to full fine-tuning's benefit.
 
-The family table motivates the depth comparison, but it is not a controlled ranking of every PEFT method in the literature. Each parameter group has its own tuned learning rate, and some groups have fewer draws than the main curves. Published results for SSF, LN-Tune, DIPA, or other methods were not rerun under this exact backbone, pretraining, split, and episodic protocol; they are discussed conceptually in \cref{sec:related}, not compared numerically against \cref{tab:vitgroups}.
+\Cref{fig:paramsacc} plots these families against the fraction of the backbone they update, together with the two best single-block interventions. Accuracy is visibly non-monotonic in parameter count: the ordering of configurations is not recoverable from size alone, which is what motivates treating position as its own variable. The family table motivates the depth comparison, but it is not a controlled ranking of every PEFT method in the literature. Each parameter group has its own tuned learning rate, and some groups have fewer draws than the main curves. Published results for SSF, LN-Tune, DIPA, or other methods were not rerun under this exact backbone, pretraining, split, and episodic protocol; they are discussed conceptually in \cref{sec:related}, not compared numerically against \cref{tab:vitgroups}.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+ width=0.90\textwidth,height=6.3cm,
+ xmode=log,log basis x=10,
+ xlabel={Backbone parameters updated (\% of 85{,}798{,}656, log scale)},
+ ylabel={EuroSAT validation accuracy (\%)},
+ xmin=0.008,xmax=190,ymin=77.5,ymax=91.0,
+ grid=major,grid style={gray!20},
+ xtick={0.012,0.045,2.75,33.04,100},
+ xticklabels={$0$,$0.05$,$2.75$,$33$,$100$},
+ every axis plot/.append style={thick}
+]
+\addplot[only marks,attncol,mark=*,mark size=2.4pt,error bars/.cd,y dir=both,y explicit] coordinates {
+  (0.012,79.22) +- (0,0.26)
+  (0.045,84.18) +- (0,0.51)
+  (2.75,87.49) +- (0,0.29)
+  (2.75,85.95) +- (0,0.50)
+  (5.5,88.79) +- (0,0.11)
+  (33.04,85.56) +- (0,0.35)
+  (66.05,84.38) +- (0,0.39)
+  (100.0,83.07) +- (0,0.20)
+};
+\addplot[mlpcol,densely dashed,thick,domain=0.008:190,samples=2]{83.07};
+\node[font=\scriptsize,above right=1pt,midgray] at (axis cs:0.012,79.22) {frozen};
+\node[font=\scriptsize,below right=1pt,midgray] at (axis cs:0.045,84.18) {LayerNorm};
+\node[font=\scriptsize,above=1pt,midgray] at (axis cs:2.75,87.49) {attn blk 8};
+\node[font=\scriptsize,below left=1pt,midgray] at (axis cs:2.75,85.95) {attn blk 11};
+\node[font=\scriptsize,above=1pt,midgray] at (axis cs:5.5,88.79) {MLP blk 8};
+\node[font=\scriptsize,above=1pt,midgray] at (axis cs:33.04,85.56) {attn, all blocks};
+\node[font=\scriptsize,below left=1pt,midgray] at (axis cs:66.05,84.38) {MLP, all blocks};
+\node[font=\scriptsize,below left=1pt,midgray] at (axis cs:100.0,83.07) {full FT};
+\end{axis}
+\end{tikzpicture}
+\caption{Accuracy against the fraction of backbone parameters updated, EuroSAT
+validation, three episode draws, error bars one standard deviation. The dashed
+line is full fine-tuning. Accuracy is not monotonic in parameter count: a single
+attention block at $2.75\%$ and a single MLP block at $5.50\%$ both sit above
+the $100\%$ point, while a differently placed block of identical size does not.
+Parameter count alone therefore does not order these configurations.}
+\label{fig:paramsacc}
+\end{figure}
 
 \subsection{Attention depth on EuroSAT}
 \label{sec:attndepth}
 
-The five tested single-block attention interventions show a pronounced depth profile. Across three episode draws, the average accuracy is 78.76\% at block 0, 78.64\% at block 2, 81.78\% at block 5, 87.49\% at block 8, and 85.95\% at block 11. The standard deviation across the three draws ranges from 0.29 to 0.50 points. Block 8 is the peak of the measured curve in all three draws, though the experiment does not locate the optimum among untested blocks 6, 7, 9, or 10.
+The five tested single-block attention interventions show a pronounced depth profile, plotted in \cref{fig:depthcurves} and tabulated with the MLP and ISIC sweeps in \cref{tab:depthmeans}. Across three episode draws, the average accuracy is 78.76\% at block 0, 78.64\% at block 2, 81.78\% at block 5, 87.49\% at block 8, and 85.95\% at block 11. The standard deviation across the three draws ranges from 0.29 to 0.50 points. Block 8 is the peak of the measured curve in all three draws, though the experiment does not locate the optimum among untested blocks 6, 7, 9, or 10.
 
 \begin{figure}[t]
 \centering
@@ -488,7 +645,7 @@ Block & Attention & MLP & Attention & MLP\\
 \subsection{The ISIC profile differs from EuroSAT}
 \label{sec:isicdepth}
 
-The attention-only depth sweep on ISIC has a different shape. Mean validation accuracies across three draws are 48.20\% at block 0, 47.96\% at block 2, 47.78\% at block 5, 45.84\% at block 8, and 44.49\% at block 11. The first three depths form a shallow-to-middle plateau whose internal order is not settled across draws; the deep end performs worse. The overall measured attention span is 3.71 points, less than half of the EuroSAT attention span. That gap is a property of attention on ISIC rather than of ISIC itself: in the MLP the two datasets span 6.96 and 8.52 points, which is the same size.
+The attention-only depth sweep on ISIC has a different shape (\cref{fig:isiccurve}). Mean validation accuracies across three draws are 48.20\% at block 0, 47.96\% at block 2, 47.78\% at block 5, 45.84\% at block 8, and 44.49\% at block 11. The first three depths form a shallow-to-middle plateau whose internal order is not settled across draws; the deep end performs worse. The overall measured attention span is 3.71 points, less than half of the EuroSAT attention span. That gap is a property of attention on ISIC rather than of ISIC itself: in the MLP the two datasets span 6.96 and 8.52 points, which is the same size.
 
 \begin{figure}[t]
 \centering
@@ -559,9 +716,42 @@ No single tested block of either family beats full fine-tuning on ISIC. Full fin
 We use “milder” and “stronger” domain shift as contextual descriptions rather than as a quantitative independent variable. One rough proxy is headroom over the frozen model: the ViT whole-family headroom is 6.34 points for the best family on EuroSAT and 13.24 points for full fine-tuning on ISIC. Those values do not measure domain shift directly and are taken from different best configurations, so they should not be interpreted as a calibrated shift score. The depth curves establish that the preferred positions differ; explaining the difference mechanistically remains future work.
 
 \subsection{Inner-loop length}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+ width=0.72\textwidth,height=5.4cm,
+ xlabel={Inner-loop Adam steps},ylabel={EuroSAT validation accuracy (\%)},
+ xtick={5,10,20},xmin=3.5,xmax=21.5,ymin=82.5,ymax=86.8,
+ grid=major,grid style={gray!20},legend pos=south west,legend cell align=left
+]
+\addplot[attncol,mark=*,thick] coordinates {
+  (5,84.67)
+  (10,85.33)
+  (20,85.96)
+};
+\addlegendentry{Attention-only ($2.75\%$)}
+\addplot[mlpcol,mark=square*,thick,dashed] coordinates {
+  (5,84.01)
+  (10,84.64)
+  (20,83.24)
+};
+\addlegendentry{Full fine-tuning ($100\%$)}
+\end{axis}
+\end{tikzpicture}
+\caption{Accuracy against inner-loop length, each baseline retuned at every step
+count, one episode draw. Attention-only adaptation improves monotonically with
+more updates; full fine-tuning peaks at ten steps and falls by $1.40$ points at
+twenty. The $20$-step setting used for the main experiments therefore places
+full fine-tuning below its own best step count. Single-draw adjacent differences
+are close to the measured run-to-run floor, so this is directional evidence.}
+\label{fig:steps}
+\end{figure}
+
 \label{sec:steps}
 
-To test whether the five-shot EuroSAT advantage of attention-only tuning was an artefact of using 20 update steps, we re-tuned both attention-only and full fine-tuning at 5, 10, and 20 steps. At 5 steps the scores were 84.67\% for attention and 84.01\% for full fine-tuning; at 10 steps they were 85.33\% and 84.64\%; at 20 steps they were 85.96\% and 83.24\%. Attention-only performance rose across these settings, while full fine-tuning at 20 steps was 1.40 points below its 10-step result.
+\Cref{fig:steps} shows the result. To test whether the five-shot EuroSAT advantage of attention-only tuning was an artefact of using 20 update steps, we re-tuned both attention-only and full fine-tuning at 5, 10, and 20 steps. \Cref{tab:steps} gives the measured values. At 5 steps the scores were 84.67\% for attention and 84.01\% for full fine-tuning; at 10 steps they were 85.33\% and 84.64\%; at 20 steps they were 85.96\% and 83.24\%. Attention-only performance rose across these settings, while full fine-tuning at 20 steps was 1.40 points below its 10-step result.
 
 \begin{table}[t]
 \centering
@@ -582,9 +772,45 @@ Inner steps & Attention-only (learning rate) & Full FT (learning rate) & Attenti
 This is consistent with the possibility that additional optimization harms the large parameter group under scarce support data. However, the 5- and 10-step values are from one draw, and the differences between adjacent step counts are close to the measured run-to-run variation. It would be too strong to conclude that full fine-tuning has a stable optimum at precisely 10 steps. A more defensible conclusion is that the 20-step configuration used in the main experiment places full fine-tuning at a disadvantage relative to its own 10-step validation score, and the direction is consistent with a capacity-versus-data explanation.
 
 \subsection{Support-set size and the bounded advantage}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+ width=0.72\textwidth,height=5.6cm,
+ xmode=log,log basis x=2,
+ xlabel={Support examples per class, $k$},
+ ylabel={Gain over frozen ProtoNet (points)},
+ xtick={1,5,20},xticklabels={1,5,20},xmin=0.75,xmax=27,ymin=-3.2,ymax=11.5,
+ grid=major,grid style={gray!20},legend pos=north west,legend cell align=left
+]
+\addplot[black,dotted,thick,forget plot,domain=0.75:27,samples=2]{0};
+\addplot[attncol,mark=*,thick,error bars/.cd,y dir=both,y explicit] coordinates {
+  (1,+0.05) +- (0,1.42)
+  (5,+6.35) +- (0,1.07)
+  (20,+7.65) +- (0,0.98)
+};
+\addlegendentry{Attention-only}
+\addplot[mlpcol,mark=square*,thick,dashed,error bars/.cd,y dir=both,y explicit] coordinates {
+  (1,-1.20) +- (0,1.42)
+  (5,+3.85) +- (0,0.43)
+  (20,+7.41) +- (0,1.04)
+};
+\addlegendentry{Full fine-tuning}
+\end{axis}
+\end{tikzpicture}
+\caption{Each method's gain over a frozen backbone as support size grows,
+EuroSAT. Full fine-tuning is \emph{below} frozen ProtoNet at one shot and has
+caught up by twenty; the attention-only advantage is therefore bounded to an
+intermediate regime rather than general. The $k=5$ row averages three draws; the
+endpoints are single draws, and the statistic was specified after the $k=1$ and
+$k=5$ outcomes were seen, so only $k=20$ is a prospective check.}
+\label{fig:shots}
+\end{figure}
+
 \label{sec:shots}
 
-The support-size probe evaluates $k=1,5,20$ shots per class on EuroSAT. In the main three-draw five-shot comparison, attention-only reaches 85.56\%, full fine-tuning reaches 83.07\%, and frozen ProtoNet reaches 79.22\%. A separate matched follow-up uses one episode-sampling draw (seed 0) at each support size and compares all three methods on the same episodes. In that paired follow-up, attention-only / full fine-tuning / frozen ProtoNet reach 62.15 / 60.89 / 62.09\% at one shot, 85.96 / 83.24 / 79.27\% at five shots, and 94.00 / 93.76 / 86.35\% at twenty shots. The main three-draw five-shot means and the paired seed-0 follow-up are distinct estimates and are not interchanged below.
+The support-size probe evaluates $k=1,5,20$ shots per class on EuroSAT; \cref{fig:shots} plots each method's gain over the frozen reference. In the main three-draw five-shot comparison, attention-only reaches 85.56\%, full fine-tuning reaches 83.07\%, and frozen ProtoNet reaches 79.22\%. A separate matched follow-up uses one episode-sampling draw (seed 0) at each support size and compares all three methods on the same episodes. In that paired follow-up, reported in \cref{tab:shots}, attention-only / full fine-tuning / frozen ProtoNet reach 62.15 / 60.89 / 62.09\% at one shot, 85.96 / 83.24 / 79.27\% at five shots, and 94.00 / 93.76 / 86.35\% at twenty shots. The main three-draw five-shot means and the paired seed-0 follow-up are distinct estimates and are not interchanged below.
 
 \begin{table}[t]
 \centering
@@ -607,9 +833,49 @@ The attention-minus-full-fine-tuning gap is $+1.25\pm1.18$ points at one shot, $
 There is an important inferential qualification: the gain-over-frozen statistic was formulated after the one- and five-shot outcomes had been inspected. The twenty-shot row was the prospective check of that revised prediction, not a preregistered test of the original hypothesis. Furthermore, the follow-up uses one draw at each support size, and the one-shot differences against frozen include zero within their 95\% intervals. The pattern is consistent with full fine-tuning benefiting more as support data increases, but it is limited evidence for a capacity-versus-data explanation rather than a conclusive mechanism test.
 
 \subsection{Weight decay: the predicted repair fails}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+ width=0.72\textwidth,height=5.4cm,
+ xlabel={Inner-loop weight decay},
+ ylabel={Change vs.\ that method's own $\lambda=0$ run},
+ xtick={1,2,3,4},xticklabels={$10^{-4}$,$10^{-3}$,$10^{-2}$,$10^{-1}$},
+ xmin=0.6,xmax=4.4,ymin=-7.2,ymax=2.2,
+ grid=major,grid style={gray!20},legend pos=south west,legend cell align=left
+]
+\addplot[black,dotted,thick,forget plot,domain=0.6:4.4,samples=2]{0};
+\addplot[attncol,mark=*,thick,error bars/.cd,y dir=both,y explicit] coordinates {
+  (1,-0.12) +- (0,1.01)
+  (2,+0.61) +- (0,0.99)
+  (3,-0.44) +- (0,1.03)
+  (4,-5.59) +- (0,1.19)
+};
+\addlegendentry{Attention-only}
+\addplot[mlpcol,mark=square*,thick,dashed,error bars/.cd,y dir=both,y explicit] coordinates {
+  (1,-0.31) +- (0,0.89)
+  (2,-1.08) +- (0,0.89)
+  (3,-3.44) +- (0,0.98)
+  (4,-5.12) +- (0,1.07)
+};
+\addlegendentry{Full fine-tuning}
+\end{axis}
+\end{tikzpicture}
+\caption{The predicted repair fails. If full fine-tuning lost because too many
+parameters moved too freely, regularisation should have recovered it. Instead the
+dose response is monotonically negative, reaching $-5.12$ points at
+$\lambda=10^{-1}$. Attention-only adaptation is flat until $10^{-2}$ and is
+then damaged as well, so a small parameter group is not inherently immune.
+Differences are paired against each method's own $\lambda=0$ run on the same
+episodes; the two arms use separately tuned learning rates, so only the
+within-method dose response is clean.}
+\label{fig:wd}
+\end{figure}
+
 \label{sec:wd}
 
-The capacity-versus-data account motivated a direct intervention: if full fine-tuning suffers because too many parameters move too far from a useful pretrained representation, regularization might constrain its updates. In the executed experiment, increasing coupled Adam weight decay did not repair full fine-tuning. Relative to the corresponding zero-decay configuration, the paired changes in EuroSAT accuracy were $-0.31\pm0.89$ at $10^{-4}$, $-1.08\pm0.89$ at $10^{-3}$, $-3.44\pm0.98$ at $10^{-2}$, and $-5.12\pm1.07$ at $10^{-1}$. The decline is monotonic and becomes clearly detrimental at the larger tested values.
+\Cref{fig:wd} plots the dose response. The capacity-versus-data account motivated a direct intervention: if full fine-tuning suffers because too many parameters move too far from a useful pretrained representation, regularization might constrain its updates. In the executed experiment, increasing coupled Adam weight decay did not repair full fine-tuning. Relative to the corresponding zero-decay configuration (\cref{tab:wd}), the paired changes in EuroSAT accuracy were $-0.31\pm0.89$ at $10^{-4}$, $-1.08\pm0.89$ at $10^{-3}$, $-3.44\pm0.98$ at $10^{-2}$, and $-5.12\pm1.07$ at $10^{-1}$. The decline is monotonic and becomes clearly detrimental at the larger tested values.
 
 \begin{table}[t]
 \centering
@@ -749,7 +1015,7 @@ Last-layer fine-tuning & $3\times10^{-3}$ & 43.64\\
 \end{tabular}
 \end{table}
 
-The near-equality between BatchNorm-only tuning and full fine-tuning is restricted to this validation protocol and these individually selected learning rates. It does not imply that normalisation tuning is always sufficient on medical imagery, nor that BatchNorm and LayerNorm experiments are interchangeable.
+\Cref{tab:isicresnet} lists the ISIC pilot baselines. The near-equality between BatchNorm-only tuning and full fine-tuning is restricted to this validation protocol and these individually selected learning rates. It does not imply that normalisation tuning is always sufficient on medical imagery, nor that BatchNorm and LayerNorm experiments are interchangeable.
 
 \subsection{Activation-space displacement probe}
 
@@ -786,7 +1052,7 @@ Unresolved mechanisms & Initialization-centred $\ell^2$-SP, denser depth scan, a
 
 \section{Scope of claims}
 
-For clarity, the paper makes the following distinctions:
+\Cref{tab:paramcounts} gives the exact parameter partition and \cref{tab:repro} the protocol elements needed to reproduce the main results. For clarity, the paper makes the following distinctions:
 \begin{itemize}
   \item The reported 8.85-point attention span and 8.52-point MLP span are validation differences among five sampled depths on EuroSAT, averaged over three episode draws.
   \item The claim that the preferred depth profile changes by dataset is supported by six paired shallow/deep comparisons over three draws on EuroSAT and ISIC, three in attention-only adaptation and three in MLP-only adaptation. Two further MLP comparisons involving block 11 do not reverse; they are excluded from \cref{tab:mirror} because block 11 lies past the EuroSAT peak, and that exclusion criterion was chosen after the numbers were seen rather than in advance.
