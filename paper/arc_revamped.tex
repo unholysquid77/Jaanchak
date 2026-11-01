@@ -283,25 +283,72 @@ and query predictions are based on cosine similarity between the query embedding
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}[
-  block/.style={draw,rounded corners=2pt,minimum width=2.25cm,minimum height=0.65cm,align=center,font=\small},
-  freeze/.style={block,fill=lightblue},
-  train/.style={block,fill=lightorange,draw=mlpcol,very thick},
-  arr/.style={-{Latex[length=2mm]},thick},
-  node distance=0.38cm
+  blk/.style={draw,rounded corners=2pt,minimum width=2.15cm,minimum height=0.58cm,align=center,font=\scriptsize},
+  froz/.style={blk,fill=lightblue},
+  sel/.style={blk,fill=lightorange,draw=mlpcol,very thick},
+  op/.style={draw,rounded corners=2pt,minimum width=1.75cm,minimum height=0.52cm,align=center,font=\scriptsize,fill=white},
+  arr/.style={-{Latex[length=1.7mm]},thick},
+  tiny/.style={font=\scriptsize,midgray},
+  res/.style={draw,circle,inner sep=0.8pt,font=\scriptsize}
 ]
-\node[block,fill=white] (patch) {Patch embedding\\+ positional encoding};
-\node[freeze,below=of patch] (b0) {ViT block 0};
-\node[freeze,below=of b0] (b1) {ViT block 1};
-\node[below=0.1cm of b1] (dots) {$\vdots$};
-\node[train,below=0.1cm of dots] (bi) {Selected block $i$\\(attention OR MLP)};
-\node[freeze,below=0.1cm of bi] (bn) {Remaining ViT blocks};
-\node[block,fill=lightgreen,below=of bn] (head) {Cosine ProtoNet head};
-\draw[arr] (patch)--(b0); \draw[arr] (b0)--(b1); \draw[arr] (b1)--(dots); \draw[arr] (dots)--(bi); \draw[arr] (bi)--(bn); \draw[arr] (bn)--(head);
-\node[align=left,font=\small,right=0.55cm of bi,text width=4.0cm] (key) {\textbf{Primary intervention:} update only the selected sublayer at block $i$.\\[0.2em]
-\colorbox{lightblue}{\strut Frozen} and \colorbox{lightorange}{\strut Trainable}\\[0.2em]
-Block indices are $0,\ldots,11$; the sweep samples $i\in\{0,2,5,8,11\}$.};
+
+%% ---------- (a) patchify + encoder stack ----------
+\node[font=\scriptsize\bfseries] (ta) at (0,0.95) {(a) ViT-B/16 encoder};
+\node[draw,minimum width=1.0cm,minimum height=1.0cm,fill=lightgreen,font=\scriptsize,align=center] (img) at (0,0) {$224^2$\\image};
+\node[blk,fill=white,below=0.42cm of img,minimum width=2.5cm] (patch)
+  {patchify $16{\times}16$\\$\rightarrow 196$ patches};
+\node[blk,fill=white,below=0.30cm of patch,minimum width=2.5cm] (tok)
+  {$+$ CLS $+$ pos.\ emb.\\$197$ tokens, $d{=}768$};
+\node[froz,below=0.34cm of tok] (b0) {block 0};
+\node[froz,below=0.16cm of b0] (b2) {block 2};
+\node[sel,below=0.16cm of b2] (b5) {block $i$};
+\node[froz,below=0.16cm of b5] (b8) {block 8};
+\node[froz,below=0.16cm of b8] (b11) {block 11};
+\node[blk,fill=lightgreen,below=0.34cm of b11,minimum width=2.5cm] (head)
+  {cosine ProtoNet head\\\scriptsize(no learned weights)};
+\foreach \a/\b in {img/patch,patch/tok,tok/b0,b0/b2,b2/b5,b5/b8,b8/b11,b11/head}{\draw[arr] (\a)--(\b);}
+\node[tiny,right=0.14cm of b0]  {$\ell=0$};
+\node[tiny,right=0.14cm of b2]  {$\ell=2$};
+\node[tiny,right=0.14cm of b5]  {sampled $i$};
+\node[tiny,right=0.14cm of b8]  {$\ell=8$};
+\node[tiny,right=0.14cm of b11] {$\ell=11$};
+\node[tiny,below=0.06cm of head,text width=3.2cm,align=center]
+  {twelve structurally identical blocks; the sweep samples $i\in\{0,2,5,8,11\}$};
+
+%% ---------- (b) inside one block ----------
+\begin{scope}[xshift=6.5cm]
+\node[font=\scriptsize\bfseries] (tb) at (0,0.95) {(b) Inside block $\ell$ (pre-norm)};
+\node[blk,fill=white,minimum width=1.2cm] (in) at (0,0.1) {$h_{\ell-1}$};
+\node[op,below=0.30cm of in] (ln1) {LayerNorm};
+\node[op,below=0.30cm of ln1,fill=lightorange,draw=mlpcol,very thick,minimum width=2.4cm] (msa)
+  {multi-head self-attn\\\scriptsize 12 heads $\cdot$ qkv, proj};
+\node[res,below=0.30cm of msa] (r1) {$+$};
+\node[op,below=0.30cm of r1] (ln2) {LayerNorm};
+\node[op,below=0.30cm of ln2,fill=lightorange,draw=mlpcol,very thick,minimum width=2.4cm] (mlp)
+  {MLP\\\scriptsize $768\!\rightarrow\!3072\!\rightarrow\!768$};
+\node[res,below=0.30cm of mlp] (r2) {$+$};
+\node[blk,fill=white,below=0.30cm of r2,minimum width=1.2cm] (out) {$h_\ell$};
+\foreach \a/\b in {in/ln1,ln1/msa,msa/r1,r1/ln2,ln2/mlp,mlp/r2,r2/out}{\draw[arr] (\a)--(\b);}
+\draw[arr,midgray] (in.west) -- ++(-1.05,0) |- (r1.west);
+\draw[arr,midgray] (r1.east) -- ++(1.05,0) |- (r2.east);
+\node[tiny,left=0.04cm of msa,align=right,text width=1.5cm]  {$2.36$M\\$2.75\%$};
+\node[tiny,right=0.04cm of mlp,align=left,text width=1.5cm] {$4.72$M\\$5.50\%$};
+\node[tiny,below=0.12cm of out,text width=4.3cm,align=center]
+  {Exactly one outlined sublayer is updated per run. Everything else, LayerNorm
+   included, stays frozen.};
+\end{scope}
 \end{tikzpicture}
-\caption{A schematic of the ViT intervention used in the depth experiments. Unlike the standard encoder--decoder Transformer diagram used in some sequence-to-sequence papers, the evaluated vision model is an encoder-only ViT. The highlight denotes the sublayer whose parameters are updated for a single-block run; all other backbone weights are frozen.}
+\caption{The evaluated architecture and the intervention. \textbf{(a)}~ViT-B/16 is
+encoder-only: the image is cut into non-overlapping $16\times16$ patches,
+projected to $768$ dimensions, and passed with a class token through twelve
+blocks of identical shape. Because the blocks are structurally identical, moving
+an adaptation between them changes position while holding parameter count and
+type fixed, which is what makes depth measurable as an independent axis.
+\textbf{(b)}~Each block applies pre-norm self-attention and a pre-norm MLP, each
+with a residual connection. A single run updates one outlined sublayer in one
+block, $2.36$M parameters for attention or $4.72$M for the MLP, and freezes the
+other $97\%$ of the backbone. The classifier is a cosine prototype head with no
+learned parameters, so all reported differences come from the backbone.}
 \label{fig:vitintervention}
 \end{figure}
 
