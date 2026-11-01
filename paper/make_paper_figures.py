@@ -175,3 +175,93 @@ within-method dose response is clean.}}
 for k, v in out.items():
     io.open(f"/tmp/claude-0/-home-user-Jaanchak/31439b19-2e3b-5156-86bc-e77dee1c0391/scratchpad/gen/{k}.tex", "w").write(v)
     print(f"  wrote {k}.tex  ({len(v.splitlines())} lines)")
+
+
+# -------------------------------------------------- tuned learning rates
+# Read from the per-cell selection files that produced each reported number,
+# so the table cannot disagree with the runs. `_v2` supersedes, exactly as the
+# figure loader does.
+import json, glob
+BEST = {
+ "eurosat": ["eurosat","pos0","pos2","pos5","pos8","poscurve","mlppos0","mlppos2",
+             "mlppos5_v2","mlppos8","mlppos11","mlpposcurve","cap1"],
+ "isic":    ["isic","isicpos0_v2","isicpos2","isicpos5","isicpos8","isicpos11",
+             "isicposcurve","isicmlppos0","isicmlppos2","isicmlppos5_v2",
+             "isicmlppos8","isicmlppos11"],
+}
+def lrs(ds):
+    got = {}
+    for f in BEST[ds]:
+        p = os.path.join(ROOT, "results", f"vit_best_lr_{f}.json")
+        if not os.path.exists(p):
+            continue
+        for b, v in json.load(io.open(p)).items():
+            if "5" in v:
+                got.setdefault(b, v["5"]["lr"])
+    return got
+
+def fmt(x):
+    if x is None:
+        return "---"
+    e = 0
+    m = float(x)
+    while m < 1: m *= 10; e -= 1
+    m = round(m)
+    return f"$10^{{{e}}}$" if m == 1 else f"${m}\\times10^{{{e}}}$"
+
+E, I = lrs("eurosat"), lrs("isic")
+ROWS = [
+ ("group", "Whole-network and whole-family groups", None, None),
+ ("row", "Frozen ProtoNet (no update)", None, None),
+ ("row", "Patch embedding", "patch_embed_ft", "0.866\\%"),
+ ("row", "LayerNorm only", "ln_only_ft", "0.045\\%"),
+ ("row", "Attention, all blocks", "attn_only_ft", "33.041\\%"),
+ ("row", "MLP, all blocks", "mlp_only_ft", "66.049\\%"),
+ ("row", "Full fine-tuning", "full_ft", "100\\%"),
+ ("group", "Single attention block (each $2.75\\%$)", None, None),
+ ("row", "Block 0", "attn_block0_ft", None),
+ ("row", "Block 2", "attn_block2_ft", None),
+ ("row", "Block 5", "attn_block5_ft", None),
+ ("row", "Block 8", "attn_block8_ft", None),
+ ("row", "Block 11", "attn_last1_ft", None),
+ ("group", "Single MLP block (each $5.50\\%$)", None, None),
+ ("row", "Block 0", "mlp_block0_ft", None),
+ ("row", "Block 2", "mlp_block2_ft", None),
+ ("row", "Block 5", "mlp_block5_ft", None),
+ ("row", "Block 8", "mlp_block8_ft", None),
+ ("row", "Block 11", "mlp_block11_ft", None),
+]
+body = []
+for kind, label, key, frac in ROWS:
+    if kind == "group":
+        body.append(f"\\addlinespace\n\\multicolumn{{4}}{{l}}{{\\emph{{{label}}}}}\\\\")
+    elif key is None:
+        body.append(f"{label} & $0\\%$ & --- & --- \\\\")
+    else:
+        body.append(f"{label} & {frac or ''} & {fmt(E.get(key))} & {fmt(I.get(key))} \\\\")
+span_e = max(E[k] for k in E) / min(E[k] for k in E)
+out["hyper"] = f"""\\begin{{table}}[t]
+\\centering
+\\small
+\\caption{{Inner-loop learning rate selected on validation for every reported
+configuration, at $k=5$. Each group is tuned separately on a logarithmic grid;
+all other inner-loop settings are shared ($20$ Adam steps, no weight decay
+unless a probe varies it, cosine prototype head). The spread is the reason a
+shared learning rate would not have produced a fair comparison. On EuroSAT the
+selected rates span four orders of magnitude, from $10^{{-6}}$ for the patch
+embedding to $10^{{-2}}$ for LayerNorm. The spread is not only across families:
+holding family and parameter count fixed, attention's selected rate moves
+$100\\times$ between block 0 and block 8. It also moves across datasets, by
+$100\\times$ for attention block 0, which is evidence for a dataset-dependent
+depth effect that does not come from accuracy.}}
+\\label{{tab:hyper}}
+\\begin{{tabular}}{{lrrr}}
+\\toprule
+Configuration & Updated & EuroSAT & ISIC \\\\
+\\midrule
+{chr(10).join(body)}
+\\bottomrule
+\\end{{tabular}}
+\\end{{table}}"""
+io.open(f"/tmp/claude-0/-home-user-Jaanchak/31439b19-2e3b-5156-86bc-e77dee1c0391/scratchpad/gen/hyper.tex","w").write(out["hyper"])
+print(f"  wrote hyper.tex  (EuroSAT selected-rate span {span_e:,.0f}x)")

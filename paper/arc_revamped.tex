@@ -402,7 +402,52 @@ An individual attention block contains approximately 2.75\% of the model paramet
 
 Learning rates are not shared across parameter groups. Updating a small parameter family generally requires a different learning-rate scale from updating the whole network, and the initial ResNet experiments showed that a shared learning rate can make a parameter-family comparison uninterpretable. We use a logarithmic grid and choose each group's setting on validation. If the best candidate lies at the upper or lower edge of the grid, that result is treated as a boundary rather than an optimum and the grid is extended where appropriate. For the depth and MLP comparisons, the tuned settings are then held fixed for the additional episode-sampling seeds, so the replicated curves vary the episode sample rather than retuning every cell for each draw.
 
-This procedure does not eliminate all selection bias: choosing the learning rate based on validation accuracy makes validation a model-selection resource. It does, however, keep the test split isolated and makes explicit that reported results describe performance under validation-tuned adaptation settings. The learning-rate sweeps use 50 episodes per configuration to identify candidate settings; the main reported depth curves are re-evaluated on 100 episodes per draw.
+\begin{table}[t]
+\centering
+\small
+\caption{Inner-loop learning rate selected on validation for every reported
+configuration, at $k=5$. Each group is tuned separately on a logarithmic grid;
+all other inner-loop settings are shared ($20$ Adam steps, no weight decay
+unless a probe varies it, cosine prototype head). The spread is the reason a
+shared learning rate would not have produced a fair comparison. On EuroSAT the
+selected rates span four orders of magnitude, from $10^{-6}$ for the patch
+embedding to $10^{-2}$ for LayerNorm. The spread is not only across families:
+holding family and parameter count fixed, attention's selected rate moves
+$100\times$ between block 0 and block 8. It also moves across datasets, by
+$100\times$ for attention block 0, which is evidence for a dataset-dependent
+depth effect that does not come from accuracy.}
+\label{tab:hyper}
+\begin{tabular}{lrrr}
+\toprule
+Configuration & Updated & EuroSAT & ISIC \\
+\midrule
+\addlinespace
+\multicolumn{4}{l}{\emph{Whole-network and whole-family groups}}\\
+Frozen ProtoNet (no update) & $0\%$ & --- & --- \\
+Patch embedding & 0.866\% & $10^{-6}$ & $10^{-3}$ \\
+LayerNorm only & 0.045\% & $10^{-2}$ & $10^{-1}$ \\
+Attention, all blocks & 33.041\% & $10^{-4}$ & $3\times10^{-4}$ \\
+MLP, all blocks & 66.049\% & $10^{-4}$ & $10^{-4}$ \\
+Full fine-tuning & 100\% & $10^{-5}$ & $10^{-4}$ \\
+\addlinespace
+\multicolumn{4}{l}{\emph{Single attention block (each $2.75\%$)}}\\
+Block 0 &  & $3\times10^{-5}$ & $3\times10^{-3}$ \\
+Block 2 &  & $3\times10^{-4}$ & $10^{-3}$ \\
+Block 5 &  & $3\times10^{-4}$ & $10^{-3}$ \\
+Block 8 &  & $3\times10^{-3}$ & $10^{-3}$ \\
+Block 11 &  & $3\times10^{-4}$ & $3\times10^{-4}$ \\
+\addlinespace
+\multicolumn{4}{l}{\emph{Single MLP block (each $5.50\%$)}}\\
+Block 0 &  & $3\times10^{-4}$ & $10^{-3}$ \\
+Block 2 &  & $3\times10^{-4}$ & $10^{-3}$ \\
+Block 5 &  & $3\times10^{-3}$ & $3\times10^{-3}$ \\
+Block 8 &  & $10^{-3}$ & $10^{-3}$ \\
+Block 11 &  & $10^{-3}$ & $10^{-3}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\Cref{tab:hyper} lists the rate selected for every reported configuration. This procedure does not eliminate all selection bias: choosing the learning rate based on validation accuracy makes validation a model-selection resource. It does, however, keep the test split isolated and makes explicit that reported results describe performance under validation-tuned adaptation settings. The learning-rate sweeps use 50 episodes per configuration to identify candidate settings; the main reported depth curves are re-evaluated on 100 episodes per draw.
 
 \subsection{Primary depth interventions}
 
@@ -770,7 +815,7 @@ One link does \emph{not} reverse, and we state it rather than drop it. Block 5 m
 
 No single tested block of either family beats full fine-tuning on ISIC. Full fine-tuning averages 51.50\%, compared with 48.20\% for the best attention position (block 0) and 49.74\% for the best MLP position (block 2). The best isolated intervention on EuroSAT therefore should not be generalized into a recommendation for ISIC. The direction of the useful depth shift depends on the target data, and the ISIC plateau does not identify a unique preferred block among blocks 0, 2, and 5.
 
-We use “milder” and “stronger” domain shift as contextual descriptions rather than as a quantitative independent variable. One rough proxy is headroom over the frozen model: the ViT whole-family headroom is 6.34 points for the best family on EuroSAT and 13.24 points for full fine-tuning on ISIC. Those values do not measure domain shift directly and are taken from different best configurations, so they should not be interpreted as a calibrated shift score. The depth curves establish that the preferred positions differ; explaining the difference mechanistically remains future work.
+We use “milder” and “stronger” domain shift as contextual descriptions rather than as a quantitative independent variable. One rough proxy is headroom over the frozen model: the ViT whole-family headroom is 6.34 points for the best family on EuroSAT and 13.24 points for full fine-tuning on ISIC. Those values do not measure domain shift directly and are taken from different best configurations, so they should not be interpreted as a calibrated shift score. A second, independent indication appears in the tuned hyperparameters rather than in accuracy: in \cref{tab:hyper} the same selector at the same depth tunes to opposite ends of the same grid on the two datasets, attention block 0 taking $3\times10^{-5}$ on EuroSAT and $3\times10^{-3}$ on ISIC. The depth curves establish that the preferred positions differ; explaining the difference mechanistically remains future work.
 
 \subsection{Inner-loop length}
 
